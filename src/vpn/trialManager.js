@@ -116,7 +116,7 @@ async function createTrialKey(userId, username) {
     }
 
     const safeName = (username || 'user').replace(/[^a-zA-Z0-9_]/g, '');
-    const email = `trial_${safeName}_${userId}`;
+    const email = `trial_${safeName}_${userId}_${Date.now()}`;
 
     const clientConfig = xuiClient.createClientConfig(email, {
       expiryDays: config.expiryDays,
