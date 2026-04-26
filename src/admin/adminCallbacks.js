@@ -338,8 +338,7 @@ async function handleAdminCallback(bot, query) {
       `📅 Expiry: *${config.expiryDays} Days*\n` +
       `📱 IP Limit: *${config.ipLimit}*\n` +
       `🔢 Max per user: *${config.maxTrials}*\n\n` +
-      `Setting ပြင်ချင်ရင် အောက်က button နှိပ်ပါ\n` +
-      `User trial reset: \`/trialreset <user_id>\``,
+      `Setting ပြင်ချင်ရင် အောက်က button နှိပ်ပါ`,
       {
         chat_id: chatId, message_id: messageId,
         parse_mode: 'Markdown',
@@ -353,6 +352,10 @@ async function handleAdminCallback(bot, query) {
             [
               { text: '📱 IP Limit ပြင်', callback_data: 'admin_trial_set_ip' },
               { text: '🔢 Max Trials ပြင်', callback_data: 'admin_trial_set_max' },
+            ],
+            [
+              { text: '🔄 User Reset', callback_data: 'admin_trial_reset_user' },
+              { text: '🔄 All Reset', callback_data: 'admin_trial_reset_all' },
             ],
             [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
           ],
@@ -414,6 +417,78 @@ async function handleAdminCallback(bot, query) {
       {
         chat_id: chatId, message_id: messageId,
         parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Trial Reset: Single User (prompt for ID) ──────────────
+  if (data === 'admin_trial_reset_user') {
+    broadcastState[`reset_${userId}`] = true;
+    return bot.editMessageText(
+      `🔄 *Trial Reset (User)*\n\nReset လုပ်ချင်တဲ့ User ID ကို ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Trial Reset: All Users ────────────────────────────────
+  if (data === 'admin_trial_reset_all') {
+    return bot.editMessageText(
+      `⚠️ *All User Trial Reset*\n\nUser အားလုံးရဲ့ trial ကို reset လုပ်မှာ သေချာပါသလား?`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '✅ Reset All', callback_data: 'admin_trial_reset_all_confirm' }],
+            [{ text: '❌ Cancel', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_trial_reset_all_confirm') {
+    const { resetTrial } = require('../vpn/trialManager');
+    const trialsFile = path.join(__dirname, '../../data/trials.json');
+
+    let resetCount = 0;
+    if (fs.existsSync(trialsFile)) {
+      const trialsData = JSON.parse(fs.readFileSync(trialsFile, 'utf8'));
+      const userIdsToReset = Object.keys(trialsData.trials || {});
+      resetCount = userIdsToReset.length;
+
+      // Reset all
+      trialsData.trials = {};
+      fs.writeFileSync(trialsFile, JSON.stringify(trialsData, null, 2));
+
+      // Notify all users
+      for (const uid of userIdsToReset) {
+        try {
+          await bot.sendMessage(uid,
+            `🎉 Trial Key ပြန်လည်ရယူနိုင်ပါပြီ!\n\nAdmin မှ trial reset လုပ်ပေးထားပါတယ်။ 🎁 Trial Key ကို ပြန်ထုတ်ယူနိုင်ပါပြီ။`
+          );
+        } catch {}
+      }
+    }
+
+    return bot.editMessageText(
+      `✅ User ${resetCount} ယောက် trial reset ပြီးပါပြီ!\nUser အားလုံးကို notify ပို့ပြီးပါပြီ။`,
+      {
+        chat_id: chatId, message_id: messageId,
         reply_markup: {
           inline_keyboard: [
             [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
@@ -602,4 +677,12 @@ function clearBroadcast(userId) {
   delete broadcastState[String(userId)];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast };
+function isResettingTrial(userId) {
+  return broadcastState[`reset_${String(userId)}`] === true;
+}
+
+function clearTrialReset(userId) {
+  delete broadcastState[`reset_${String(userId)}`];
+}
+
+module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset };

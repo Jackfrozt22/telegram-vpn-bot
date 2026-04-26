@@ -5,7 +5,7 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
@@ -224,27 +224,24 @@ bot.onText(/\/orders/, (msg) => {
 });
 
 // ─── Admin: Trial Reset ──────────────────────────────────────
-bot.onText(/\/trialreset (\d+)/, (msg, match) => {
+bot.onText(/\/trialreset (\d+)/, async (msg, match) => {
   if (!requireAdmin(bot, msg)) return;
 
   const targetUserId = match[1];
-  const trialsFile = path.join(__dirname, '../data/trials.json');
+  const { resetTrial } = require('./vpn/trialManager');
 
-  if (!fs.existsSync(trialsFile)) {
-    bot.sendMessage(msg.chat.id, '❌ Trials data not found.', { parse_mode: 'Markdown' });
-    return;
-  }
-
-  const data = JSON.parse(fs.readFileSync(trialsFile, 'utf8'));
-  if (data.trials[targetUserId]) {
-    delete data.trials[targetUserId];
-    fs.writeFileSync(trialsFile, JSON.stringify(data, null, 2));
-    bot.sendMessage(msg.chat.id,
-      `✅ User \`${targetUserId}\` ၏ trial reset ပြီးပါပြီ။\nTrial key ပြန်ယူခွင့် ရပါပြီ။`,
-      { parse_mode: 'Markdown' }
-    );
+  if (resetTrial(targetUserId)) {
+    await bot.sendMessage(msg.chat.id, `✅ User ${targetUserId} ၏ trial reset ပြီးပါပြီ။`);
+    try {
+      await bot.sendMessage(targetUserId,
+        `🎉 Trial Key ပြန်လည်ရယူနိုင်ပါပြီ!\n\nAdmin မှ trial reset လုပ်ပေးထားပါတယ်။ 🎁 Trial Key ကို ပြန်ထုတ်ယူနိုင်ပါပြီ။`
+      );
+      await bot.sendMessage(msg.chat.id, `📨 User ${targetUserId} ကို notify ပို့ပြီးပါပြီ။`);
+    } catch {
+      await bot.sendMessage(msg.chat.id, `⚠️ User ${targetUserId} ကို notify ပို့လို့ မရပါ။`);
+    }
   } else {
-    bot.sendMessage(msg.chat.id, `ℹ️ User \`${targetUserId}\` trial data မရှိပါ။`, { parse_mode: 'Markdown' });
+    await bot.sendMessage(msg.chat.id, `ℹ️ User ${targetUserId} trial data မရှိပါ။`);
   }
 });
 
@@ -550,6 +547,33 @@ bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (!isAdmin(msg.from.id)) return;
 
+  // Trial reset: admin sends user ID
+  if (isResettingTrial(msg.from.id)) {
+    clearTrialReset(msg.from.id);
+    const targetId = msg.text.trim();
+
+    if (!/^\d+$/.test(targetId)) {
+      await bot.sendMessage(msg.chat.id, '❌ User ID သည် ဂဏန်းဖြစ်ရပါမယ်။');
+      return;
+    }
+
+    const { resetTrial } = require('./vpn/trialManager');
+    if (resetTrial(targetId)) {
+      await bot.sendMessage(msg.chat.id, `✅ User ${targetId} ၏ trial reset ပြီးပါပြီ။`);
+      try {
+        await bot.sendMessage(targetId,
+          `🎉 Trial Key ပြန်လည်ရယူနိုင်ပါပြီ!\n\nAdmin မှ trial reset လုပ်ပေးထားပါတယ်။ 🎁 Trial Key ကို ပြန်ထုတ်ယူနိုင်ပါပြီ။`
+        );
+        await bot.sendMessage(msg.chat.id, `📨 User ${targetId} ကို notify ပို့ပြီးပါပြီ။`);
+      } catch {
+        await bot.sendMessage(msg.chat.id, `⚠️ User ${targetId} ကို notify ပို့လို့ မရပါ။`);
+      }
+    } else {
+      await bot.sendMessage(msg.chat.id, `ℹ️ User ${targetId} trial data မရှိပါ။`);
+    }
+    return;
+  }
+
   // Broadcast takes priority
   if (isBroadcasting(msg.from.id)) {
     clearBroadcast(msg.from.id);
@@ -596,7 +620,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
     'Menu ကို အသုံးပြုပါ:',
