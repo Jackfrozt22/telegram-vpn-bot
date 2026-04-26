@@ -286,6 +286,57 @@ function handleAdminCallback(bot, query) {
     );
   }
 
+  // ─── Admin Orders ──────────────────────────────────────────
+  if (data === 'admin_orders') {
+    const { getAllPendingOrders } = require('../vpn/premiumManager');
+    const pending = getAllPendingOrders();
+
+    if (pending.length === 0) {
+      return bot.editMessageText('💰 *Orders*\n\nPending order မရှိပါ။', {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+
+    let text = `💰 *Pending Orders (${pending.length})*\n\n`;
+    const buttons = [];
+    for (const o of pending) {
+      text += `⏳ \`${o.orderId}\`\n` +
+        `   User: \`${o.userId}\` | ${o.planName} | ${o.price} Ks\n\n`;
+      buttons.push([
+        { text: `✅ ${o.orderId}`, callback_data: `order_approve_${o.orderId}` },
+        { text: `❌ ${o.orderId}`, callback_data: `order_reject_${o.orderId}` },
+      ]);
+    }
+    buttons.push([{ text: '« Admin Menu', callback_data: 'admin_menu' }]);
+
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'Markdown',
+      reply_markup: { inline_keyboard: buttons },
+    });
+  }
+
+  // ─── Trial Control ────────────────────────────────────────
+  if (data === 'admin_trial_control') {
+    return bot.editMessageText(
+      `🎁 *Trial Control*\n\n` +
+      `*Commands:*\n` +
+      `\`/trialreset <user_id>\` — User ရဲ့ trial reset\n\n` +
+      `*Current Settings:*\n` +
+      `📦 Data: ${process.env.TRIAL_DATA_GB || 100} GB\n` +
+      `📅 Expiry: ${process.env.TRIAL_EXPIRY_DAYS || 10} Days\n` +
+      `📱 IP Limit: ${process.env.TRIAL_IP_LIMIT || 1}\n` +
+      `🔢 Max per user: ${process.env.TRIAL_MAX_PER_USER || 1}`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: getAdminBackKeyboard(),
+      }
+    );
+  }
+
   return false;
 }
 

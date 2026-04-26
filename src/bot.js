@@ -10,6 +10,10 @@ const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
 const { logUserAction } = require('./middleware/userLogger');
+const { startUsageAlertScheduler } = require('./middleware/usageAlert');
+const { recordReferral, findReferrerByCode } = require('./vpn/referralManager');
+const { getAllPendingOrders, approveOrder, rejectOrder, getOrderById, updateOrderScreenshot } = require('./vpn/premiumManager');
+const { hasUsedTrial, getTrialInfo } = require('./vpn/trialManager');
 
 const fs = require('fs');
 const path = require('path');
@@ -25,6 +29,12 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 
 console.log('VPN Key Bot is running...');
+
+// Start usage alert scheduler
+startUsageAlertScheduler(bot);
+
+// Admin state for order management
+const adminOrderState = new Map();
 
 // ─── Helper: Check force join ────────────────────────────────
 async function enforceJoin(msg) {
@@ -184,10 +194,92 @@ bot.onText(/\/stats/, (msg) => {
   );
 });
 
+// ─── Admin: Order Management ─────────────────────────────────
+bot.onText(/\/orders/, (msg) => {
+  if (!requireAdmin(bot, msg)) return;
+  const pending = getAllPendingOrders();
+
+  if (pending.length === 0) {
+    bot.sendMessage(msg.chat.id, '📋 *Pending Orders*\n\nPending order မရှိပါ။', { parse_mode: 'Markdown' });
+    return;
+  }
+
+  let text = `📋 *Pending Orders (${pending.length})*\n\n`;
+  const buttons = [];
+  for (const o of pending) {
+    text += `⏳ \`${o.orderId}\`\n` +
+      `   User: \`${o.userId}\` | ${o.planName} | ${o.price} Ks\n\n`;
+    buttons.push([
+      { text: `✅ Approve ${o.orderId}`, callback_data: `order_approve_${o.orderId}` },
+      { text: `❌ Reject ${o.orderId}`, callback_data: `order_reject_${o.orderId}` },
+    ]);
+  }
+  buttons.push([{ text: '« Admin Menu', callback_data: 'admin_menu' }]);
+
+  bot.sendMessage(msg.chat.id, text, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: buttons },
+  });
+});
+
+// ─── Admin: Trial Reset ──────────────────────────────────────
+bot.onText(/\/trialreset (\d+)/, (msg, match) => {
+  if (!requireAdmin(bot, msg)) return;
+
+  const targetUserId = match[1];
+  const trialsFile = path.join(__dirname, '../data/trials.json');
+
+  if (!fs.existsSync(trialsFile)) {
+    bot.sendMessage(msg.chat.id, '❌ Trials data not found.', { parse_mode: 'Markdown' });
+    return;
+  }
+
+  const data = JSON.parse(fs.readFileSync(trialsFile, 'utf8'));
+  if (data.trials[targetUserId]) {
+    delete data.trials[targetUserId];
+    fs.writeFileSync(trialsFile, JSON.stringify(data, null, 2));
+    bot.sendMessage(msg.chat.id,
+      `✅ User \`${targetUserId}\` ၏ trial reset ပြီးပါပြီ။\nTrial key ပြန်ယူခွင့် ရပါပြီ။`,
+      { parse_mode: 'Markdown' }
+    );
+  } else {
+    bot.sendMessage(msg.chat.id, `ℹ️ User \`${targetUserId}\` trial data မရှိပါ။`, { parse_mode: 'Markdown' });
+  }
+});
+
 // ─── User Commands ───────────────────────────────────────────
-bot.onText(/\/start/, async (msg) => {
+bot.onText(/\/start(.*)/, async (msg, match) => {
   if (isBanned(msg.from.id)) return;
   if (!await enforceJoin(msg)) return;
+
+  // Handle referral link
+  const param = (match[1] || '').trim();
+  if (param.startsWith('ref_')) {
+    const referrerId = param.replace('ref_', '');
+    if (referrerId !== String(msg.from.id)) {
+      const recorded = recordReferral(referrerId, msg.from.id, msg.from.first_name || 'User');
+      if (recorded) {
+        logUserAction(bot, msg.from, '👥 Referred User Joined',
+          `Referred by: \`${referrerId}\``
+        );
+        // Notify referrer
+        try {
+          const { getUserReferral, getReferralConfig } = require('./vpn/referralManager');
+          const ref = getUserReferral(referrerId);
+          const config = getReferralConfig();
+          await bot.sendMessage(referrerId,
+            `👥 *New Referral!*\n\n` +
+            `${msg.from.first_name || 'User'} သင့် link ကနေ join ပါတယ်!\n` +
+            `📊 Total: ${ref.invitedUsers.length}/${config.requiredInvites}\n\n` +
+            (ref.invitedUsers.length >= config.requiredInvites
+              ? `🎁 Bonus key ယူလို့ရပါပြီ! /menu > Referral ကို နှိပ်ပါ!`
+              : `${config.requiredInvites - ref.invitedUsers.length} ယောက် ထပ်လိုပါသေးတယ်!`),
+            { parse_mode: 'Markdown' }
+          );
+        } catch {}
+      }
+    }
+  }
 
   logUserAction(bot, msg.from, '🟢 Bot Started', 'User opened the bot');
   handleCommand(bot, msg, 'start');
@@ -209,7 +301,7 @@ bot.onText(/\/trial/, async (msg) => {
   if (isBanned(msg.from.id)) return;
   if (!await enforceJoin(msg)) return;
 
-  const { hasUsedTrial, getTrialConfig } = require('./vpn/trialManager');
+  const { getTrialConfig } = require('./vpn/trialManager');
 
   if (hasUsedTrial(msg.from.id)) {
     bot.sendMessage(msg.chat.id,
@@ -265,6 +357,7 @@ bot.onText(/\/account/, async (msg) => {
 bot.onText(/\/cancel/, (msg) => {
   clearBroadcast(msg.from.id);
   clearAdminState(msg.from.id);
+  adminOrderState.delete(String(msg.from.id));
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
 
@@ -302,6 +395,81 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  // Admin order callbacks
+  if (query.data.startsWith('order_approve_')) {
+    if (!isAdmin(query.from.id)) return;
+    const orderId = query.data.replace('order_approve_', '');
+
+    bot.answerCallbackQuery(query.id, { text: '⏳ Approving...' });
+    const result = await approveOrder(orderId);
+
+    if (result.success) {
+      bot.editMessageText(
+        `✅ *Order Approved!*\n\n` +
+        `📋 Order: \`${orderId}\`\n` +
+        `👤 User: \`${result.userId}\`\n` +
+        `📦 Plan: ${result.order.planName}\n\n` +
+        `Key auto-created ပြီး user ထံ ပို့ပေးပါပြီ။`,
+        {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id,
+          parse_mode: 'Markdown',
+        }
+      );
+
+      // Notify user
+      try {
+        await bot.sendMessage(result.userId,
+          `✅ *Order Approved!*\n\n` +
+          `📋 Order: \`${orderId}\`\n` +
+          `📦 Plan: *${result.order.planName}* (${result.order.dataGB}GB/${result.order.days}Days)\n\n` +
+          `🔗 *Config Link:*\n\`${result.link}\`\n\n` +
+          `_Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။_`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch {}
+
+      logUserAction(bot, query.from, '✅ Order Approved',
+        `📋 Order: \`${orderId}\`\nUser: \`${result.userId}\``
+      );
+    } else {
+      bot.editMessageText(`❌ Approve failed: ${result.msg}`, {
+        chat_id: query.message.chat.id,
+        message_id: query.message.message_id,
+      });
+    }
+    return;
+  }
+
+  if (query.data.startsWith('order_reject_')) {
+    if (!isAdmin(query.from.id)) return;
+    const orderId = query.data.replace('order_reject_', '');
+    const result = rejectOrder(orderId);
+
+    if (result.success) {
+      bot.answerCallbackQuery(query.id, { text: '❌ Rejected' });
+      bot.editMessageText(
+        `❌ *Order Rejected*\n\n📋 Order: \`${orderId}\``,
+        {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id,
+          parse_mode: 'Markdown',
+        }
+      );
+
+      // Notify user
+      try {
+        await bot.sendMessage(result.userId,
+          `❌ *Order Rejected*\n\n` +
+          `📋 Order: \`${orderId}\`\n\n` +
+          `Admin ထံ ဆက်သွယ်ပြီး မေးမြန်းနိုင်ပါတယ်။`,
+          { parse_mode: 'Markdown' }
+        );
+      } catch {}
+    }
+    return;
+  }
+
   // Force join check for non-admin callbacks
   if (!query.data.startsWith('xui_') && !query.data.startsWith('admin_') && !query.data.startsWith('admsrv')) {
     if (!await enforceJoinCallback(query)) return;
@@ -318,6 +486,62 @@ bot.on('callback_query', async (query) => {
   }
 
   return handleCallback(bot, query);
+});
+
+// ─── Photo handler for payment screenshots ───────────────────
+bot.on('photo', async (msg) => {
+  if (!msg.caption || isBanned(msg.from.id)) return;
+
+  // Check if caption contains order ID
+  const orderMatch = msg.caption.match(/ORD\d+/);
+  if (!orderMatch) return;
+
+  const orderId = orderMatch[0];
+  const order = getOrderById(orderId);
+  if (!order || order.userId !== String(msg.from.id)) {
+    bot.sendMessage(msg.chat.id, '❌ Order ID မမှန်ပါ။');
+    return;
+  }
+  if (order.status !== 'pending') {
+    bot.sendMessage(msg.chat.id, `ℹ️ Order \`${orderId}\` ${order.status} ဖြစ်ပြီးပါပြီ။`, { parse_mode: 'Markdown' });
+    return;
+  }
+
+  const fileId = msg.photo[msg.photo.length - 1].file_id;
+  updateOrderScreenshot(String(msg.from.id), orderId, fileId);
+
+  bot.sendMessage(msg.chat.id,
+    `✅ *Screenshot ရရှိပါပြီ!*\n\n` +
+    `📋 Order: \`${orderId}\`\n` +
+    `Admin approve လုပ်ပေးပါမယ်။ ခဏစောင့်ပါ။`,
+    { parse_mode: 'Markdown' }
+  );
+
+  // Notify admin
+  const adminIds = (process.env.ADMIN_IDS || '').split(',');
+  for (const adminId of adminIds) {
+    try {
+      await bot.sendPhoto(adminId.trim(), fileId, {
+        caption: `💰 *Payment Screenshot*\n\n` +
+          `📋 Order: \`${orderId}\`\n` +
+          `👤 User: \`${order.userId}\`\n` +
+          `📦 Plan: ${order.planName} | ${order.price} Ks`,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '✅ Approve', callback_data: `order_approve_${orderId}` },
+              { text: '❌ Reject', callback_data: `order_reject_${orderId}` },
+            ],
+          ],
+        },
+      });
+    } catch {}
+  }
+
+  logUserAction(bot, msg.from, '💰 Payment Screenshot Sent',
+    `📋 Order: \`${orderId}\`\n📦 Plan: ${order.planName} | ${order.price} Ks`
+  );
 });
 
 // ─── X-UI Admin message handler ──────────────────────────────

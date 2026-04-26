@@ -3,7 +3,11 @@ function getMainMenuKeyboard() {
     inline_keyboard: [
       [
         { text: '🎁 Trial Key', callback_data: 'trial_key' },
+        { text: '💎 Premium Key', callback_data: 'premium_menu' },
+      ],
+      [
         { text: '📦 My Key', callback_data: 'menu_mykey' },
+        { text: '👥 Referral', callback_data: 'referral_menu' },
       ],
       [
         { text: '👤 My Account', callback_data: 'my_account' },
