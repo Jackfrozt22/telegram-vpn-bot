@@ -1,50 +1,82 @@
-# Telegram Bot
+# VPN Key Bot
 
-A custom Telegram bot built with Node.js and [node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api).
+A Telegram bot for generating and managing VPN keys and configs. Built with Node.js and [node-telegram-bot-api](https://github.com/yagop/node-telegram-bot-api).
 
 ## Features
 
-- `/start` - Start the bot with a welcome message
-- `/help` - Show available commands
-- `/menu` - Show an interactive inline keyboard menu
-- `/about` - About this bot
-- Inline keyboard buttons with callback handling
-- Echo messages back to the user
-- Settings submenu (Language, Notifications)
+### VPN Key Generation
+- **UUID** - Generate random UUIDs for VMess/VLESS
+- **Password** - Secure random passwords
+- **Base64 Key** - Base64-encoded keys
+- **Hex Key** - Hexadecimal keys
+- **All Keys** - Generate all key types at once
+
+### Config Generation
+- **VMess** - Generate VMess configs with import links
+- **VLESS** - Generate VLESS configs with import links
+- **Shadowsocks** - Generate SS configs (aes-256-gcm, aes-128-gcm, chacha20-ietf-poly1305)
+- **V2Ray Full JSON** - Complete V2Ray client configuration files
+
+### Key Management
+- Auto-save generated keys and configs
+- View all saved keys
+- Delete keys
+
+### Server List
+- Browse available VPN servers
+- Generate configs for specific servers
+- Server status monitoring
+
+## Bot Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Start the bot & show main menu |
+| `/help` | Show help message |
+| `/genkey` | Generate VPN keys |
+| `/mykeys` | View saved keys |
+| `/servers` | Browse VPN servers |
+| `/vmess` | Generate VMess config |
+| `/vless` | Generate VLESS config |
+| `/ss` | Generate Shadowsocks config |
+| `/menu` | Show main menu |
 
 ## Setup
 
-### 1. Create a Bot on Telegram
+### 1. Create a Bot
 
-1. Open Telegram and search for [@BotFather](https://t.me/BotFather)
+1. Open [@BotFather](https://t.me/BotFather) on Telegram
 2. Send `/newbot` and follow the instructions
-3. Copy the bot token you receive
+3. Copy the bot token
 
-### 2. Install Dependencies
+### 2. Install
 
 ```bash
 npm install
 ```
 
-### 3. Configure Environment
+### 3. Configure
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and paste your bot token:
-
+Edit `.env`:
 ```
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ```
 
-### 4. Run the Bot
+### 4. Configure Servers
+
+Edit `data/servers.json` to add your VPN servers. Default servers are created on first run.
+
+### 5. Run
 
 ```bash
 # Production
 npm start
 
-# Development (auto-restart on file changes)
+# Development (auto-restart)
 npm run dev
 ```
 
@@ -53,49 +85,43 @@ npm run dev
 ```
 telegram-bot/
 ├── src/
-│   ├── bot.js          # Main entry point
-│   ├── commands.js     # Command handlers (/start, /help, /menu, /about)
-│   ├── callbacks.js    # Inline keyboard callback handlers
-│   └── keyboards.js    # Keyboard layout definitions
-├── .env.example        # Environment variable template
+│   ├── bot.js                  # Main entry point
+│   ├── commands.js             # Command handlers
+│   ├── callbacks.js            # Inline keyboard callback handlers
+│   ├── keyboards.js            # Keyboard layouts
+│   └── vpn/
+│       ├── keyGenerator.js     # Key generation (UUID, password, base64, hex)
+│       ├── keyStore.js         # Key storage (JSON file)
+│       ├── serverList.js       # Server list management
+│       └── configGenerator.js  # VMess/VLESS/SS/V2Ray config generation
+├── data/
+│   ├── keys.json               # Stored keys (auto-created)
+│   └── servers.json            # Server list (auto-created)
+├── .env.example
 ├── .gitignore
 ├── package.json
 └── README.md
 ```
 
-## Adding New Features
+## Adding Custom Servers
 
-### Add a new command
+Edit `data/servers.json`:
 
-1. Add a regex listener in `src/bot.js`:
-   ```js
-   bot.onText(/\/mycommand/, (msg) => handleCommand(bot, msg, 'mycommand'));
-   ```
-
-2. Add the handler in `src/commands.js`:
-   ```js
-   case 'mycommand':
-     bot.sendMessage(chatId, 'My custom response');
-     break;
-   ```
-
-### Add a new inline button
-
-1. Add the button in `src/keyboards.js`:
-   ```js
-   { text: 'My Button', callback_data: 'my_action' }
-   ```
-
-2. Handle the callback in `src/callbacks.js`:
-   ```js
-   case 'my_action':
-     bot.editMessageText('Button clicked!', {
-       chat_id: chatId,
-       message_id: messageId,
-       reply_markup: getBackKeyboard(),
-     });
-     break;
-   ```
+```json
+{
+  "servers": [
+    {
+      "id": 1,
+      "name": "My Server",
+      "host": "my-server.com",
+      "port": 443,
+      "country": "SG",
+      "status": "online",
+      "protocols": ["vmess", "vless", "shadowsocks"]
+    }
+  ]
+}
+```
 
 ## License
 

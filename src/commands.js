@@ -1,4 +1,4 @@
-const { getMainMenuKeyboard, getSettingsKeyboard } = require('./keyboards');
+const { getMainMenuKeyboard } = require('./keyboards');
 
 function handleCommand(bot, msg, command) {
   const chatId = msg.chat.id;
@@ -7,34 +7,41 @@ function handleCommand(bot, msg, command) {
   switch (command) {
     case 'start':
       bot.sendMessage(chatId,
-        `Hello ${userName}! Welcome to the bot.\n\n` +
-        `Use the menu below or type /help to see all commands.`,
-        { reply_markup: getMainMenuKeyboard() }
+        `🔐 *VPN Key Bot*\n\n` +
+        `Welcome, ${userName}!\n\n` +
+        `This bot helps you:\n` +
+        `• Generate VPN keys (UUID, passwords, etc.)\n` +
+        `• Store & retrieve your keys\n` +
+        `• Browse VPN servers\n` +
+        `• Generate VMess / VLESS / Shadowsocks configs\n\n` +
+        `Choose an option below or type /help`,
+        { parse_mode: 'Markdown', reply_markup: getMainMenuKeyboard() }
       );
       break;
 
     case 'help':
       bot.sendMessage(chatId,
-        `Available Commands:\n\n` +
-        `/start - Start the bot\n` +
-        `/help - Show this help message\n` +
-        `/menu - Show main menu\n` +
-        `/about - About this bot\n\n` +
-        `You can also send me any text message and I'll echo it back!`
+        `📖 *VPN Key Bot - Help*\n\n` +
+        `*Commands:*\n` +
+        `/start - Start & show main menu\n` +
+        `/help - Show this help\n` +
+        `/genkey - Generate VPN keys\n` +
+        `/mykeys - View saved keys\n` +
+        `/servers - View server list\n` +
+        `/vmess - Generate VMess config\n` +
+        `/vless - Generate VLESS config\n` +
+        `/ss - Generate Shadowsocks config\n` +
+        `/menu - Show main menu\n\n` +
+        `Use the inline buttons for easy navigation!`,
+        { parse_mode: 'Markdown' }
       );
       break;
 
     case 'menu':
-      bot.sendMessage(chatId, 'Choose an option:', {
+      bot.sendMessage(chatId, '🔐 *Main Menu*', {
+        parse_mode: 'Markdown',
         reply_markup: getMainMenuKeyboard(),
       });
-      break;
-
-    case 'about':
-      bot.sendMessage(chatId,
-        `This bot is built with Node.js and node-telegram-bot-api.\n` +
-        `Version: 1.0.0`
-      );
       break;
 
     default:
