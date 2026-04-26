@@ -10,6 +10,7 @@ function getMainMenuKeyboard() {
         { text: '⚙️ Generate Config', callback_data: 'menu_config' },
       ],
       [
+        { text: '🎁 Trial Key', callback_data: 'trial_key' },
         { text: '❓ Help', callback_data: 'help' },
       ],
     ],

@@ -14,8 +14,9 @@ const { generateVPNKey } = require('./vpn/keyGenerator');
 const { storeKey, getAllKeys, getKey, deleteKey, getKeyCount } = require('./vpn/keyStore');
 const { getServerList, getServerById, getOnlineServers, getCountryFlag, formatServerList } = require('./vpn/serverList');
 const { generateVMessConfig, generateVLESSConfig, generateShadowsocksConfig, generateV2RayClientConfig, formatConfigMessage } = require('./vpn/configGenerator');
+const { hasUsedTrial, createTrialKey, getTrialConfig } = require('./vpn/trialManager');
 
-function handleCallback(bot, query) {
+async function handleCallback(bot, query) {
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
   const userId = String(query.from.id);
@@ -308,6 +309,86 @@ function handleCallback(bot, query) {
       parse_mode: 'Markdown',
       reply_markup: getV2RayProtocolKeyboard(),
     });
+  }
+
+  // ─── Trial Key ─────────────────────────────────────────────
+  if (data === 'trial_key') {
+    if (hasUsedTrial(userId)) {
+      return bot.editMessageText(
+        '🎁 *Trial Key*\n\n' +
+        '❌ Trial key ကို တစ်ကြိမ်သာ ထုတ်ခွင့်ရှိပါတယ်။\n' +
+        'သင် trial key ယူပြီးပါပြီ။',
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: getBackKeyboard(),
+        }
+      );
+    }
+
+    const config = getTrialConfig();
+    return bot.editMessageText(
+      `🎁 *Trial Key*\n\n` +
+      `Free trial key ထုတ်ယူနိုင်ပါတယ်!\n\n` +
+      `📦 Data: *${config.totalGB} GB*\n` +
+      `📅 Expiry: *${config.expiryDays} Days*\n` +
+      `📱 Device Limit: *${config.ipLimit}*\n` +
+      `🔐 Encryption: *aes-256-gcm*\n\n` +
+      `⚠️ တစ်ယောက်ကို *${config.maxTrials} ကြိမ်* သာ ထုတ်ခွင့်ရှိပါတယ်။`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Key ထုတ်ယူမယ်', callback_data: 'trial_claim' }],
+            [{ text: '« Back', callback_data: 'back_to_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'trial_claim') {
+    if (hasUsedTrial(userId)) {
+      return bot.editMessageText(
+        '❌ Trial key ကို တစ်ကြိမ်သာ ထုတ်ခွင့်ရှိပါတယ်။',
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: getBackKeyboard(),
+        }
+      );
+    }
+
+    bot.editMessageText('⏳ Trial key ထုတ်ပေးနေပါတယ်...', {
+      chat_id: chatId, message_id: messageId,
+    });
+
+    const result = await createTrialKey(userId, query.from.username || query.from.first_name);
+
+    if (!result.success) {
+      return bot.editMessageText(`❌ ${result.msg}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+
+    const d = result.data;
+    const expiryDate = new Date(d.expiryDate).toLocaleDateString('en-GB');
+
+    return bot.editMessageText(
+      `🎁 *Trial Key ရရှိပါပြီ!*\n\n` +
+      `📅 Expiry: *${expiryDate}*\n` +
+      `📦 Data: *${d.dataGB} GB*\n` +
+      `📱 Device: *${d.ipLimit}*\n\n` +
+      `🔗 *Config Link:*\n\`${d.link}\`\n\n` +
+      `_Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။_`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: getBackKeyboard(),
+      }
+    );
   }
 
   // ─── Help ──────────────────────────────────────────────────

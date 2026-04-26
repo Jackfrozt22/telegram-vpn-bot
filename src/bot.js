@@ -213,6 +213,39 @@ bot.onText(/\/ss/, (msg) => {
   });
 });
 
+bot.onText(/\/trial/, (msg) => {
+  if (isBanned(msg.from.id)) return;
+  const { hasUsedTrial, getTrialConfig } = require('./vpn/trialManager');
+
+  if (hasUsedTrial(msg.from.id)) {
+    bot.sendMessage(msg.chat.id,
+      '🎁 *Trial Key*\n\n❌ Trial key ကို တစ်ကြိမ်သာ ထုတ်ခွင့်ရှိပါတယ်။\nသင် trial key ယူပြီးပါပြီ။',
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
+
+  const config = getTrialConfig();
+  bot.sendMessage(msg.chat.id,
+    `🎁 *Trial Key*\n\n` +
+    `Free trial key ထုတ်ယူနိုင်ပါတယ်!\n\n` +
+    `📦 Data: *${config.totalGB} GB*\n` +
+    `📅 Expiry: *${config.expiryDays} Days*\n` +
+    `📱 Device Limit: *${config.ipLimit}*\n` +
+    `🔐 Encryption: *aes-256-gcm*\n\n` +
+    `⚠️ တစ်ယောက်ကို *${config.maxTrials} ကြိမ်* သာ ထုတ်ခွင့်ရှိပါတယ်။`,
+    {
+      parse_mode: 'Markdown',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🎁 Trial Key ထုတ်ယူမယ်', callback_data: 'trial_claim' }],
+          [{ text: '« Back', callback_data: 'back_to_menu' }],
+        ],
+      },
+    }
+  );
+});
+
 bot.onText(/\/cancel/, (msg) => {
   clearBroadcast(msg.from.id);
   clearAdminState(msg.from.id);
