@@ -16,7 +16,7 @@ const SERVERS_FILE = path.join(__dirname, '../../data/servers.json');
 // Track broadcast state per admin
 const broadcastState = {};
 
-function handleAdminCallback(bot, query) {
+async function handleAdminCallback(bot, query) {
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
   const userId = String(query.from.id);
@@ -321,10 +321,19 @@ function handleAdminCallback(bot, query) {
   // ─── Trial Control ────────────────────────────────────────
   if (data === 'admin_trial_control') {
     const { getTrialConfig } = require('../vpn/trialManager');
+    const xuiClient = require('../vpn/xuiClient');
     const config = getTrialConfig();
+
+    let inboundName = `ID: ${config.inboundId}`;
+    try {
+      const inbound = await xuiClient.getInbound(config.inboundId);
+      if (inbound) inboundName = `${inbound.remark} (ID: ${config.inboundId})`;
+    } catch {}
+
     return bot.editMessageText(
       `🎁 *Trial Control*\n\n` +
       `*Current Settings:*\n` +
+      `🌐 Inbound: *${inboundName}*\n` +
       `📦 Data: *${config.totalGB} GB*\n` +
       `📅 Expiry: *${config.expiryDays} Days*\n` +
       `📱 IP Limit: *${config.ipLimit}*\n` +
@@ -336,6 +345,7 @@ function handleAdminCallback(bot, query) {
         parse_mode: 'Markdown',
         reply_markup: {
           inline_keyboard: [
+            [{ text: '🌐 Inbound ပြောင်း', callback_data: 'admin_trial_set_inbound' }],
             [
               { text: '📦 Data GB ပြင်', callback_data: 'admin_trial_set_gb' },
               { text: '📅 Days ပြင်', callback_data: 'admin_trial_set_days' },
@@ -344,6 +354,69 @@ function handleAdminCallback(bot, query) {
               { text: '📱 IP Limit ပြင်', callback_data: 'admin_trial_set_ip' },
               { text: '🔢 Max Trials ပြင်', callback_data: 'admin_trial_set_max' },
             ],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Trial Inbound Selector ───────────────────────────────
+  if (data === 'admin_trial_set_inbound') {
+    const xuiClient = require('../vpn/xuiClient');
+    try {
+      const result = await xuiClient.listInbounds();
+      if (!result.success || !result.obj || result.obj.length === 0) {
+        return bot.editMessageText('❌ Inbound မရှိပါ။', {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getAdminBackKeyboard(),
+        });
+      }
+
+      const buttons = result.obj.map((inb) => [
+        {
+          text: `${inb.remark} (${inb.protocol}, port: ${inb.port})`,
+          callback_data: `admin_trial_inb_${inb.id}`,
+        },
+      ]);
+      buttons.push([{ text: '« Back', callback_data: 'admin_trial_control' }]);
+
+      return bot.editMessageText(
+        `🌐 *Trial Inbound ပြောင်း*\n\nInbound ရွေးချယ်ပါ:`,
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'Markdown',
+          reply_markup: { inline_keyboard: buttons },
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Error: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+  }
+
+  if (data.startsWith('admin_trial_inb_')) {
+    const inboundId = parseInt(data.replace('admin_trial_inb_', ''));
+    const { updateTrialConfig } = require('../vpn/trialManager');
+    const xuiClient = require('../vpn/xuiClient');
+
+    let inboundName = `ID: ${inboundId}`;
+    try {
+      const inbound = await xuiClient.getInbound(inboundId);
+      if (inbound) inboundName = inbound.remark;
+    } catch {}
+
+    updateTrialConfig({ inboundId });
+    return bot.editMessageText(
+      `✅ Trial Inbound *${inboundName}* (ID: ${inboundId}) သို့ ပြောင်းပြီးပါပြီ!`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
             [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
           ],
         },

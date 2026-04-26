@@ -151,18 +151,19 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
   let sent = 0;
   let failed = 0;
 
-  bot.sendMessage(msg.chat.id, `📢 Broadcasting to ${userIds.length} users...`);
+  await bot.sendMessage(msg.chat.id, `📢 Broadcasting to ${userIds.length} users...`);
 
   for (const uid of userIds) {
     try {
-      await bot.sendMessage(uid, `📢 *Broadcast*\n\n${text}`, { parse_mode: 'Markdown' });
+      await bot.sendMessage(uid, `📢 Broadcast\n\n${text}`);
       sent++;
+      if (sent % 25 === 0) await new Promise(r => setTimeout(r, 1000));
     } catch {
       failed++;
     }
   }
 
-  bot.sendMessage(msg.chat.id, `📢 Broadcast complete!\n✅ Sent: ${sent}\n❌ Failed: ${failed}`);
+  await bot.sendMessage(msg.chat.id, `📢 Broadcast complete!\n✅ Sent: ${sent}\n❌ Failed: ${failed}`);
 });
 
 bot.onText(/\/ban (\d+)/, (msg, match) => {
@@ -563,8 +564,15 @@ bot.on('message', async (msg) => {
 
     for (const uid of userIds) {
       try {
-        await bot.sendMessage(uid, `📢 *Broadcast*\n\n${msg.text}`, { parse_mode: 'Markdown' });
+        if (msg.photo) {
+          const photoId = msg.photo[msg.photo.length - 1].file_id;
+          await bot.sendPhoto(uid, photoId, { caption: msg.caption || '' });
+        } else {
+          await bot.sendMessage(uid, `📢 Broadcast\n\n${msg.text}`);
+        }
         sent++;
+        // Rate limit: 30 msgs/sec max for Telegram API
+        if (sent % 25 === 0) await new Promise(r => setTimeout(r, 1000));
       } catch (err) {
         failed++;
         failedIds.push(uid);
@@ -573,11 +581,8 @@ bot.on('message', async (msg) => {
     }
 
     await bot.sendMessage(msg.chat.id,
-      `📢 *Broadcast Complete!*\n\n` +
-      `✅ Sent: *${sent}*\n` +
-      `❌ Failed: *${failed}*` +
-      (failedIds.length > 0 ? `\n\n_Failed IDs: ${failedIds.slice(0, 10).join(', ')}${failedIds.length > 10 ? '...' : ''}_` : ''),
-      { parse_mode: 'Markdown' }
+      `📢 Broadcast Complete!\n\n✅ Sent: ${sent}\n❌ Failed: ${failed}` +
+      (failedIds.length > 0 ? `\n\nFailed IDs: ${failedIds.slice(0, 10).join(', ')}${failedIds.length > 10 ? '...' : ''}` : '')
     );
     return;
   }
