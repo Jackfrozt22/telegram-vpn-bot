@@ -67,6 +67,12 @@ async function createTrialKey(userId, username) {
   }
 
   try {
+    // Get inbound first to check protocol
+    const inbound = await xuiClient.getInbound(TRIAL_CONFIG.inboundId);
+    if (!inbound) {
+      return { success: false, msg: 'Inbound not found' };
+    }
+
     const email = `trial_${userId}_${Date.now()}`;
 
     const clientConfig = xuiClient.createClientConfig(email, {
@@ -74,18 +80,13 @@ async function createTrialKey(userId, username) {
       totalGB: TRIAL_CONFIG.totalGB * 1024 * 1024 * 1024,
       limitIp: TRIAL_CONFIG.ipLimit,
       tgId: String(userId),
+      protocol: inbound.protocol,
     });
 
     const res = await xuiClient.addClient(TRIAL_CONFIG.inboundId, clientConfig);
 
     if (!res.success) {
       return { success: false, msg: res.msg || 'Failed to create trial key' };
-    }
-
-    // Get inbound to generate link
-    const inbound = await xuiClient.getInbound(TRIAL_CONFIG.inboundId);
-    if (!inbound) {
-      return { success: false, msg: 'Inbound not found' };
     }
 
     const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';

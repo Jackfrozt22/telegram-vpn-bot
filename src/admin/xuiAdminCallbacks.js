@@ -391,11 +391,16 @@ async function handleXuiAdminMessage(bot, msg) {
     const limitIp = parts[3] ? parseInt(parts[3].trim()) : 0;
 
     try {
+      // Get inbound to determine protocol
+      const inboundInfo = await xuiClient.getInbound(state.inboundId);
+      const protocol = inboundInfo ? inboundInfo.protocol : 'vmess';
+
       const clientConfig = xuiClient.createClientConfig(email, {
         expiryDays: expiryDays || 0,
         totalGB,
         limitIp,
         tgId: '',
+        protocol,
       });
 
       const res = await xuiClient.addClient(state.inboundId, clientConfig);

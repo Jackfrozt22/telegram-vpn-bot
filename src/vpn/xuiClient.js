@@ -247,7 +247,7 @@ class XUIClient {
       ? Date.now() + options.expiryDays * 24 * 60 * 60 * 1000
       : 0;
 
-    return {
+    const config = {
       id: uuid,
       flow: '',
       email,
@@ -259,6 +259,14 @@ class XUIClient {
       subId: options.subId || crypto.randomBytes(8).toString('hex'),
       reset: 0,
     };
+
+    // For Shadowsocks, add password field
+    if (options.protocol === 'shadowsocks') {
+      config.password = crypto.randomBytes(16).toString('base64');
+      config.method = '';
+    }
+
+    return config;
   }
 
   // ─── Helper: Generate config link from inbound + client ────
@@ -298,8 +306,17 @@ class XUIClient {
 
     if (protocol === 'shadowsocks') {
       const method = settings.method;
-      const password = `${settings.password}:${client.password || client.id}`;
-      const userinfo = Buffer.from(`${method}:${password}`).toString('base64');
+      const is2022 = method.includes('2022');
+
+      let userinfo;
+      if (is2022) {
+        // 2022-blake3 methods: serverKey:clientKey
+        const password = `${settings.password}:${client.password}`;
+        userinfo = Buffer.from(`${method}:${password}`).toString('base64');
+      } else {
+        // Standard methods (aes-256-gcm etc): just client password
+        userinfo = Buffer.from(`${method}:${client.password}`).toString('base64');
+      }
       return `ss://${userinfo}@${serverHost}:${inbound.port}#${encodeURIComponent(inbound.remark + '-' + client.email)}`;
     }
 
@@ -314,9 +331,16 @@ class XUIClient {
     const clients = [];
     for (const inbound of (result.obj || [])) {
       const settings = JSON.parse(inbound.settings);
+      const clientStats = inbound.clientStats || [];
+
       for (const client of (settings.clients || [])) {
+        // Merge with clientStats for traffic data
+        const stats = clientStats.find((s) => s.email === client.email) || {};
         clients.push({
           ...client,
+          up: stats.up || 0,
+          down: stats.down || 0,
+          total: stats.total || client.totalGB || 0,
           inboundId: inbound.id,
           inboundRemark: inbound.remark,
           protocol: inbound.protocol,

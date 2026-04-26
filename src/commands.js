@@ -8,8 +8,13 @@ function handleCommand(bot, msg, command) {
     case 'start':
       bot.sendMessage(chatId,
         `🔐 *VPN Key Bot*\n\n` +
-        `Welcome, ${userName}!\n\n` +
-        `ရွေးချယ်ပါ:`,
+        `မင်္ဂလာပါ ${userName}! 👋\n\n` +
+        `ဒီ Bot မှာ VPN Key ထုတ်ယူနိုင်ပါတယ်။\n\n` +
+        `🎁 *Trial Key* — Free trial key ထုတ်ယူရန်\n` +
+        `📦 *My Key* — ယူထားတဲ့ key ပြန်ကြည့်ရန်\n` +
+        `👤 *My Account* — ကိုယ့်အကောင့် အချက်အလက်\n` +
+        `📞 *Admin ဆက်သွယ်ရန်* — အကူအညီ တောင်းခံရန်\n\n` +
+        `အောက်က menu ကနေ ရွေးချယ်ပါ 👇`,
         { parse_mode: 'Markdown', reply_markup: getMainMenuKeyboard() }
       );
       break;
