@@ -2,10 +2,9 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const { handleCommand } = require('./commands');
 const { handleCallback } = require('./callbacks');
-const { getOnlineServers, formatServerList } = require('./vpn/serverList');
-const { getMainMenuKeyboard, getKeyTypeKeyboard, getProtocolKeyboard, getServerListKeyboard } = require('./keyboards');
+const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
-const { registerUser, isBanned, getAllUsers, incrementStat } = require('./admin/userManager');
+const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
 const { handleAdminCallback, isBroadcasting, clearBroadcast } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
@@ -162,57 +161,6 @@ bot.onText(/\/menu/, (msg) => {
   handleCommand(bot, msg, 'menu');
 });
 
-bot.onText(/\/genkey/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  bot.sendMessage(msg.chat.id, '🔑 *Generate VPN Key*\n\nChoose key type:', {
-    parse_mode: 'Markdown',
-    reply_markup: getKeyTypeKeyboard(),
-  });
-});
-
-bot.onText(/\/mykeys/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  handleCallback(bot, {
-    id: 'cmd',
-    from: msg.from,
-    message: { chat: msg.chat, message_id: msg.message_id },
-    data: 'menu_mykeys',
-  });
-});
-
-bot.onText(/\/servers/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  const servers = getOnlineServers();
-  bot.sendMessage(msg.chat.id, formatServerList(servers), {
-    parse_mode: 'Markdown',
-    reply_markup: getServerListKeyboard(servers),
-  });
-});
-
-bot.onText(/\/vmess/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  bot.sendMessage(msg.chat.id, '⚙️ *Generate Config*\n\nChoose protocol:', {
-    parse_mode: 'Markdown',
-    reply_markup: getProtocolKeyboard(),
-  });
-});
-
-bot.onText(/\/vless/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  bot.sendMessage(msg.chat.id, '⚙️ *Generate Config*\n\nChoose protocol:', {
-    parse_mode: 'Markdown',
-    reply_markup: getProtocolKeyboard(),
-  });
-});
-
-bot.onText(/\/ss/, (msg) => {
-  if (isBanned(msg.from.id)) return;
-  bot.sendMessage(msg.chat.id, '⚙️ *Generate Config*\n\nChoose protocol:', {
-    parse_mode: 'Markdown',
-    reply_markup: getProtocolKeyboard(),
-  });
-});
-
 bot.onText(/\/trial/, (msg) => {
   if (isBanned(msg.from.id)) return;
   const { hasUsedTrial, getTrialConfig } = require('./vpn/trialManager');
@@ -244,6 +192,26 @@ bot.onText(/\/trial/, (msg) => {
       },
     }
   );
+});
+
+bot.onText(/\/mykey/, (msg) => {
+  if (isBanned(msg.from.id)) return;
+  handleCallback(bot, {
+    id: 'cmd',
+    from: msg.from,
+    message: { chat: msg.chat, message_id: msg.message_id },
+    data: 'menu_mykey',
+  });
+});
+
+bot.onText(/\/account/, (msg) => {
+  if (isBanned(msg.from.id)) return;
+  handleCallback(bot, {
+    id: 'cmd',
+    from: msg.from,
+    message: { chat: msg.chat, message_id: msg.message_id },
+    data: 'my_account',
+  });
 });
 
 bot.onText(/\/cancel/, (msg) => {
@@ -316,7 +284,7 @@ bot.on('message', (msg) => {
   if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
-    'Type /help to see available commands or use the menu below.',
+    'Menu ကို အသုံးပြုပါ:',
     { reply_markup: getMainMenuKeyboard() }
   );
 });
