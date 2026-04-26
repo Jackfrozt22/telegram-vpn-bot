@@ -4,8 +4,9 @@ const xuiClient = require('./xuiClient');
 
 const DATA_DIR = path.join(__dirname, '../../data');
 const TRIALS_FILE = path.join(DATA_DIR, 'trials.json');
+const TRIAL_SETTINGS_FILE = path.join(DATA_DIR, 'trial_settings.json');
 
-const TRIAL_CONFIG = {
+const DEFAULT_CONFIG = {
   inboundId: parseInt(process.env.TRIAL_INBOUND_ID) || 1,
   expiryDays: parseInt(process.env.TRIAL_EXPIRY_DAYS) || 10,
   totalGB: parseInt(process.env.TRIAL_DATA_GB) || 100,
@@ -22,6 +23,45 @@ function ensureFile() {
   }
 }
 
+function loadTrialSettings() {
+  if (!fs.existsSync(TRIAL_SETTINGS_FILE)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(TRIAL_SETTINGS_FILE, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function saveTrialSettings(settings) {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  fs.writeFileSync(TRIAL_SETTINGS_FILE, JSON.stringify(settings, null, 2));
+}
+
+function getTrialConfig() {
+  const saved = loadTrialSettings();
+  if (saved) {
+    return {
+      inboundId: saved.inboundId || DEFAULT_CONFIG.inboundId,
+      expiryDays: saved.expiryDays || DEFAULT_CONFIG.expiryDays,
+      totalGB: saved.totalGB || DEFAULT_CONFIG.totalGB,
+      ipLimit: saved.ipLimit || DEFAULT_CONFIG.ipLimit,
+      maxTrials: saved.maxTrials || DEFAULT_CONFIG.maxTrials,
+    };
+  }
+  return { ...DEFAULT_CONFIG };
+}
+
+function updateTrialConfig(updates) {
+  const current = getTrialConfig();
+  const newSettings = { ...current, ...updates };
+  saveTrialSettings(newSettings);
+  return newSettings;
+}
+
 function loadTrials() {
   ensureFile();
   return JSON.parse(fs.readFileSync(TRIALS_FILE, 'utf8'));
@@ -34,9 +74,10 @@ function saveTrials(data) {
 
 function hasUsedTrial(userId) {
   const data = loadTrials();
+  const config = getTrialConfig();
   const id = String(userId);
   if (!data.trials[id]) return false;
-  return data.trials[id].count >= TRIAL_CONFIG.maxTrials;
+  return data.trials[id].count >= config.maxTrials;
 }
 
 function getTrialInfo(userId) {
@@ -62,13 +103,14 @@ function recordTrial(userId, trialData) {
 }
 
 async function createTrialKey(userId, username) {
+  const config = getTrialConfig();
+
   if (hasUsedTrial(userId)) {
     return { success: false, msg: 'Trial key ကို တစ်ကြိမ်သာ ထုတ်ခွင့်ရှိပါတယ်။' };
   }
 
   try {
-    // Get inbound first to check protocol
-    const inbound = await xuiClient.getInbound(TRIAL_CONFIG.inboundId);
+    const inbound = await xuiClient.getInbound(config.inboundId);
     if (!inbound) {
       return { success: false, msg: 'Inbound not found' };
     }
@@ -76,14 +118,14 @@ async function createTrialKey(userId, username) {
     const email = `trial_${userId}_${Date.now()}`;
 
     const clientConfig = xuiClient.createClientConfig(email, {
-      expiryDays: TRIAL_CONFIG.expiryDays,
-      totalGB: TRIAL_CONFIG.totalGB * 1024 * 1024 * 1024,
-      limitIp: TRIAL_CONFIG.ipLimit,
+      expiryDays: config.expiryDays,
+      totalGB: config.totalGB * 1024 * 1024 * 1024,
+      limitIp: config.ipLimit,
       tgId: String(userId),
       protocol: inbound.protocol,
     });
 
-    const res = await xuiClient.addClient(TRIAL_CONFIG.inboundId, clientConfig);
+    const res = await xuiClient.addClient(config.inboundId, clientConfig);
 
     if (!res.success) {
       return { success: false, msg: res.msg || 'Failed to create trial key' };
@@ -92,15 +134,15 @@ async function createTrialKey(userId, username) {
     const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';
     const link = xuiClient.generateLink(inbound, clientConfig, serverHost);
 
-    const expiryDate = new Date(Date.now() + TRIAL_CONFIG.expiryDays * 24 * 60 * 60 * 1000);
+    const expiryDate = new Date(Date.now() + config.expiryDays * 24 * 60 * 60 * 1000);
 
     const trialData = {
       email,
       uuid: clientConfig.id,
       link,
       expiryDate: expiryDate.toISOString(),
-      dataGB: TRIAL_CONFIG.totalGB,
-      ipLimit: TRIAL_CONFIG.ipLimit,
+      dataGB: config.totalGB,
+      ipLimit: config.ipLimit,
     };
 
     recordTrial(userId, trialData);
@@ -114,8 +156,15 @@ async function createTrialKey(userId, username) {
   }
 }
 
-function getTrialConfig() {
-  return TRIAL_CONFIG;
+function resetTrial(userId) {
+  const data = loadTrials();
+  const id = String(userId);
+  if (data.trials[id]) {
+    delete data.trials[id];
+    saveTrials(data);
+    return true;
+  }
+  return false;
 }
 
 module.exports = {
@@ -123,4 +172,6 @@ module.exports = {
   getTrialInfo,
   createTrialKey,
   getTrialConfig,
+  updateTrialConfig,
+  resetTrial,
 };

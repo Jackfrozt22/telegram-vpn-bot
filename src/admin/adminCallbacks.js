@@ -320,19 +320,200 @@ function handleAdminCallback(bot, query) {
 
   // ─── Trial Control ────────────────────────────────────────
   if (data === 'admin_trial_control') {
+    const { getTrialConfig } = require('../vpn/trialManager');
+    const config = getTrialConfig();
     return bot.editMessageText(
       `🎁 *Trial Control*\n\n` +
-      `*Commands:*\n` +
-      `\`/trialreset <user_id>\` — User ရဲ့ trial reset\n\n` +
       `*Current Settings:*\n` +
-      `📦 Data: ${process.env.TRIAL_DATA_GB || 100} GB\n` +
-      `📅 Expiry: ${process.env.TRIAL_EXPIRY_DAYS || 10} Days\n` +
-      `📱 IP Limit: ${process.env.TRIAL_IP_LIMIT || 1}\n` +
-      `🔢 Max per user: ${process.env.TRIAL_MAX_PER_USER || 1}`,
+      `📦 Data: *${config.totalGB} GB*\n` +
+      `📅 Expiry: *${config.expiryDays} Days*\n` +
+      `📱 IP Limit: *${config.ipLimit}*\n` +
+      `🔢 Max per user: *${config.maxTrials}*\n\n` +
+      `Setting ပြင်ချင်ရင် အောက်က button နှိပ်ပါ\n` +
+      `User trial reset: \`/trialreset <user_id>\``,
       {
         chat_id: chatId, message_id: messageId,
         parse_mode: 'Markdown',
-        reply_markup: getAdminBackKeyboard(),
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📦 Data GB ပြင်', callback_data: 'admin_trial_set_gb' },
+              { text: '📅 Days ပြင်', callback_data: 'admin_trial_set_days' },
+            ],
+            [
+              { text: '📱 IP Limit ပြင်', callback_data: 'admin_trial_set_ip' },
+              { text: '🔢 Max Trials ပြင်', callback_data: 'admin_trial_set_max' },
+            ],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Trial Setting Options ────────────────────────────────
+  if (data === 'admin_trial_set_gb') {
+    return bot.editMessageText(
+      `📦 *Trial Data GB ပြင်*\n\nGB ပမာဏ ရွေးချယ်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '50 GB', callback_data: 'admin_trial_gb_50' },
+              { text: '100 GB', callback_data: 'admin_trial_gb_100' },
+              { text: '150 GB', callback_data: 'admin_trial_gb_150' },
+            ],
+            [
+              { text: '200 GB', callback_data: 'admin_trial_gb_200' },
+              { text: '250 GB', callback_data: 'admin_trial_gb_250' },
+              { text: '500 GB', callback_data: 'admin_trial_gb_500' },
+            ],
+            [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('admin_trial_gb_')) {
+    const gb = parseInt(data.replace('admin_trial_gb_', ''));
+    const { updateTrialConfig } = require('../vpn/trialManager');
+    updateTrialConfig({ totalGB: gb });
+    return bot.editMessageText(
+      `✅ Trial Data *${gb} GB* သို့ ပြောင်းပြီးပါပြီ!`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_trial_set_days') {
+    return bot.editMessageText(
+      `📅 *Trial Expiry Days ပြင်*\n\nရက် ပမာဏ ရွေးချယ်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '3 Days', callback_data: 'admin_trial_days_3' },
+              { text: '5 Days', callback_data: 'admin_trial_days_5' },
+              { text: '7 Days', callback_data: 'admin_trial_days_7' },
+            ],
+            [
+              { text: '10 Days', callback_data: 'admin_trial_days_10' },
+              { text: '14 Days', callback_data: 'admin_trial_days_14' },
+              { text: '30 Days', callback_data: 'admin_trial_days_30' },
+            ],
+            [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('admin_trial_days_')) {
+    const days = parseInt(data.replace('admin_trial_days_', ''));
+    const { updateTrialConfig } = require('../vpn/trialManager');
+    updateTrialConfig({ expiryDays: days });
+    return bot.editMessageText(
+      `✅ Trial Expiry *${days} Days* သို့ ပြောင်းပြီးပါပြီ!`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_trial_set_ip') {
+    return bot.editMessageText(
+      `📱 *Trial IP Limit ပြင်*\n\nDevice limit ရွေးချယ်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '1 Device', callback_data: 'admin_trial_ip_1' },
+              { text: '2 Devices', callback_data: 'admin_trial_ip_2' },
+              { text: '3 Devices', callback_data: 'admin_trial_ip_3' },
+            ],
+            [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('admin_trial_ip_')) {
+    const ip = parseInt(data.replace('admin_trial_ip_', ''));
+    const { updateTrialConfig } = require('../vpn/trialManager');
+    updateTrialConfig({ ipLimit: ip });
+    return bot.editMessageText(
+      `✅ Trial IP Limit *${ip}* သို့ ပြောင်းပြီးပါပြီ!`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_trial_set_max') {
+    return bot.editMessageText(
+      `🔢 *Trial Max Per User ပြင်*\n\nအကြိမ် ပမာဏ ရွေးချယ်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '1 ကြိမ်', callback_data: 'admin_trial_max_1' },
+              { text: '2 ကြိမ်', callback_data: 'admin_trial_max_2' },
+              { text: '3 ကြိမ်', callback_data: 'admin_trial_max_3' },
+            ],
+            [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('admin_trial_max_')) {
+    const max = parseInt(data.replace('admin_trial_max_', ''));
+    const { updateTrialConfig } = require('../vpn/trialManager');
+    updateTrialConfig({ maxTrials: max });
+    return bot.editMessageText(
+      `✅ Trial Max per user *${max}* ကြိမ် သို့ ပြောင်းပြီးပါပြီ!`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🎁 Trial Control', callback_data: 'admin_trial_control' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
       }
     );
   }

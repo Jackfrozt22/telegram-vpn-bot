@@ -544,39 +544,47 @@ bot.on('photo', async (msg) => {
   );
 });
 
-// ─── X-UI Admin message handler ──────────────────────────────
+// ─── Admin message handler (broadcast + XUI) ────────────────
 bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (!isAdmin(msg.from.id)) return;
-  const handled = await handleXuiAdminMessage(bot, msg);
-  if (handled) return;
-});
 
-// ─── Broadcast message handler ───────────────────────────────
-bot.on('message', async (msg) => {
-  if (!msg.text || msg.text.startsWith('/')) return;
-  if (!isAdmin(msg.from.id)) return;
-  if (!isBroadcasting(msg.from.id)) return;
+  // Broadcast takes priority
+  if (isBroadcasting(msg.from.id)) {
+    clearBroadcast(msg.from.id);
 
-  clearBroadcast(msg.from.id);
+    const users = getAllUsers();
+    const userIds = Object.keys(users);
+    let sent = 0;
+    let failed = 0;
+    const failedIds = [];
 
-  const users = getAllUsers();
-  const userIds = Object.keys(users);
-  let sent = 0;
-  let failed = 0;
+    await bot.sendMessage(msg.chat.id, `📢 Broadcasting to ${userIds.length} users...`);
 
-  bot.sendMessage(msg.chat.id, `📢 Broadcasting to ${userIds.length} users...`);
-
-  for (const uid of userIds) {
-    try {
-      await bot.sendMessage(uid, `📢 *Broadcast*\n\n${msg.text}`, { parse_mode: 'Markdown' });
-      sent++;
-    } catch {
-      failed++;
+    for (const uid of userIds) {
+      try {
+        await bot.sendMessage(uid, `📢 *Broadcast*\n\n${msg.text}`, { parse_mode: 'Markdown' });
+        sent++;
+      } catch (err) {
+        failed++;
+        failedIds.push(uid);
+        console.error(`Broadcast failed for ${uid}: ${err.message}`);
+      }
     }
+
+    await bot.sendMessage(msg.chat.id,
+      `📢 *Broadcast Complete!*\n\n` +
+      `✅ Sent: *${sent}*\n` +
+      `❌ Failed: *${failed}*` +
+      (failedIds.length > 0 ? `\n\n_Failed IDs: ${failedIds.slice(0, 10).join(', ')}${failedIds.length > 10 ? '...' : ''}_` : ''),
+      { parse_mode: 'Markdown' }
+    );
+    return;
   }
 
-  bot.sendMessage(msg.chat.id, `📢 Broadcast complete!\n✅ Sent: ${sent}\n❌ Failed: ${failed}`);
+  // XUI admin message handling
+  const handled = await handleXuiAdminMessage(bot, msg);
+  if (handled) return;
 });
 
 // ─── General Message Handler ─────────────────────────────────
