@@ -423,28 +423,29 @@ async function handleCallback(bot, query) {
     const premiumKeys = getUserPremiumKeys(userId);
     const ref = getUserReferral(userId);
 
-    const userName = query.from.first_name || 'User';
-    const username = query.from.username ? `@${query.from.username}` : 'N/A';
+    const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const userName = escHtml(query.from.first_name || 'User');
+    const username = query.from.username ? `@${escHtml(query.from.username)}` : 'N/A';
 
     let text =
-      `👤 *My Account*\n\n` +
-      `*Name:* ${userName}\n` +
-      `*Username:* ${username}\n` +
-      `*ID:* \`${userId}\`\n` +
-      `*Joined:* ${user ? new Date(user.joinedAt).toLocaleDateString('en-GB') : 'N/A'}\n\n`;
+      `👤 <b>My Account</b>\n\n` +
+      `<b>Name:</b> ${userName}\n` +
+      `<b>Username:</b> ${username}\n` +
+      `<b>ID:</b> <code>${userId}</code>\n` +
+      `<b>Joined:</b> ${user ? new Date(user.joinedAt).toLocaleDateString('en-GB') : 'N/A'}\n\n`;
 
     // Trial status
     if (hasTrial) {
-      text += `🎁 *Trial Key:* ယူပြီး (${trialInfo.count}/${getTrialConfig().maxTrials})\n`;
+      text += `🎁 <b>Trial Key:</b> ယူပြီး (${trialInfo.count}/${getTrialConfig().maxTrials})\n`;
     } else {
-      text += `🎁 *Trial Key:* မယူရသေးပါ\n`;
+      text += `🎁 <b>Trial Key:</b> မယူရသေးပါ\n`;
     }
 
     // Premium keys count
-    text += `💎 *Premium Keys:* ${premiumKeys.length} ခု\n`;
+    text += `💎 <b>Premium Keys:</b> ${premiumKeys.length} ခု\n`;
 
     // Referral info
-    text += `👥 *Referrals:* ${ref.invitedUsers.length} ယောက် invited\n`;
+    text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n`;
 
     // Live usage for latest key
     const allKeys = [];
@@ -459,7 +460,7 @@ async function handleCallback(bot, query) {
 
         if (client) {
           const usedGB = ((client.up + client.down) / 1024 / 1024 / 1024).toFixed(2);
-          const totalGB = (client.total / 1024 / 1024 / 1024).toFixed(0);
+          const totalGB = client.total > 0 ? (client.total / 1024 / 1024 / 1024).toFixed(0) : 'Unlimited';
           const expiry = client.expiryTime > 0
             ? new Date(client.expiryTime).toLocaleDateString('en-GB')
             : 'Unlimited';
@@ -471,18 +472,18 @@ async function handleCallback(bot, query) {
           const status = !client.enable ? '🔴 Disabled' : isExpired ? '🔴 Expired' : '🟢 Active';
 
           text +=
-            `\n📊 *Latest Key:* ${status}\n` +
-            `📅 *Expiry:* ${expiry} (${daysLeft} days left)\n` +
-            `📦 *Data Used:* ${usedGB} GB / ${totalGB} GB\n`;
+            `\n📊 <b>Latest Key:</b> ${status}\n` +
+            `📅 <b>Expiry:</b> ${expiry} (${daysLeft} days left)\n` +
+            `📦 <b>Data Used:</b> ${usedGB} GB / ${totalGB} GB\n`;
         }
       } catch {
-        text += `\n_Usage data ယူ၍မရပါ_\n`;
+        text += `\n<i>Usage data ယူ၍မရပါ</i>\n`;
       }
     }
 
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getBackKeyboard(),
     });
   }
