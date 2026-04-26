@@ -5,8 +5,10 @@ async function checkMembership(bot, userId) {
 
   try {
     const member = await bot.getChatMember(FORCE_JOIN_CHANNEL, userId);
+    console.log(`Force join check: user=${userId} status=${member.status}`);
     return ['member', 'administrator', 'creator'].includes(member.status);
-  } catch {
+  } catch (err) {
+    console.error(`Force join check error for user=${userId}: ${err.message}`);
     return false;
   }
 }
