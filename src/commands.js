@@ -1,4 +1,5 @@
 const { getMainMenuKeyboard } = require('./keyboards');
+const { isAdmin } = require('./admin/auth');
 
 function handleCommand(bot, msg, command) {
   const chatId = msg.chat.id;
@@ -32,6 +33,14 @@ function handleCommand(bot, msg, command) {
         `/vless - Generate VLESS config\n` +
         `/ss - Generate Shadowsocks config\n` +
         `/menu - Show main menu\n\n` +
+        (isAdmin(msg.from.id) ?
+          `*Admin Commands:*\n` +
+          `/admin - Admin panel\n` +
+          `/addserver - Add VPN server\n` +
+          `/broadcast - Broadcast message\n` +
+          `/ban - Ban user\n` +
+          `/unban - Unban user\n` +
+          `/stats - Bot statistics\n\n` : '') +
         `Use the inline buttons for easy navigation!`,
         { parse_mode: 'Markdown' }
       );
