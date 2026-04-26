@@ -2,6 +2,7 @@ const { getMainMenuKeyboard, getBackKeyboard } = require('./keyboards');
 const { hasUsedTrial, createTrialKey, getTrialConfig, getTrialInfo } = require('./vpn/trialManager');
 const xuiClient = require('./vpn/xuiClient');
 const { getUser } = require('./admin/userManager');
+const { logUserAction } = require('./middleware/userLogger');
 
 async function handleCallback(bot, query) {
   const chatId = query.message.chat.id;
@@ -91,6 +92,14 @@ async function handleCallback(bot, query) {
     const d = result.data;
     const expiryDate = new Date(d.expiryDate).toLocaleDateString('en-GB');
 
+    // Log to admin channel
+    logUserAction(bot, query.from, '🎁 Trial Key Claimed',
+      `📦 Data: ${d.dataGB} GB\n` +
+      `📅 Expiry: ${expiryDate}\n` +
+      `📱 Device: ${d.ipLimit}\n` +
+      `🔗 Email: \`${d.email}\``
+    );
+
     return bot.editMessageText(
       `🎁 *Trial Key ရရှိပါပြီ!*\n\n` +
       `📅 Expiry: *${expiryDate}*\n` +
@@ -108,6 +117,7 @@ async function handleCallback(bot, query) {
 
   // ─── My Key ────────────────────────────────────────────────
   if (data === 'menu_mykey') {
+    logUserAction(bot, query.from, '📦 Viewed My Key');
     const trialInfo = getTrialInfo(userId);
 
     if (!trialInfo || trialInfo.keys.length === 0) {
@@ -230,14 +240,10 @@ async function handleCallback(bot, query) {
 
   // ─── Contact Admin ─────────────────────────────────────────
   if (data === 'contact_admin') {
-    const adminUsername = process.env.ADMIN_USERNAME || '';
-    let text = `📞 *Admin ဆက်သွယ်ရန်*\n\n`;
+    const adminContact = process.env.ADMIN_CONTACT || 'https://t.me/JackFrozt_2k4';
 
-    if (adminUsername) {
-      text += `Admin: @${adminUsername}\n\n`;
-    }
-
-    text +=
+    const text =
+      `📞 *Admin ဆက်သွယ်ရန်*\n\n` +
       `အကူအညီလိုအပ်ပါက Admin ထံ ဆက်သွယ်ပါ။\n\n` +
       `*ဆက်သွယ်နိုင်တဲ့ အကြောင်းအရာများ:*\n` +
       `• Key သက်တမ်းတိုးခြင်း\n` +
@@ -248,7 +254,12 @@ async function handleCallback(bot, query) {
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
       parse_mode: 'Markdown',
-      reply_markup: getBackKeyboard(),
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '📞 Admin ထံ ဆက်သွယ်မယ်', url: adminContact }],
+          [{ text: '« Back to Menu', callback_data: 'back_to_menu' }],
+        ],
+      },
     });
   }
 }

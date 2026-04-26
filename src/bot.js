@@ -8,6 +8,8 @@ const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
 const { handleAdminCallback, isBroadcasting, clearBroadcast } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
+const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
+const { logUserAction } = require('./middleware/userLogger');
 
 const fs = require('fs');
 const path = require('path');
@@ -23,6 +25,43 @@ if (!token) {
 const bot = new TelegramBot(token, { polling: true });
 
 console.log('VPN Key Bot is running...');
+
+// ─── Helper: Check force join ────────────────────────────────
+async function enforceJoin(msg) {
+  if (!isForceJoinEnabled()) return true;
+  if (isAdmin(msg.from.id)) return true;
+
+  const isMember = await checkMembership(bot, msg.from.id);
+  if (!isMember) {
+    bot.sendMessage(msg.chat.id, getForceJoinMessage(), {
+      parse_mode: 'Markdown',
+      reply_markup: getForceJoinKeyboard(),
+    });
+    return false;
+  }
+  return true;
+}
+
+async function enforceJoinCallback(query) {
+  if (!isForceJoinEnabled()) return true;
+  if (isAdmin(query.from.id)) return true;
+
+  const isMember = await checkMembership(bot, query.from.id);
+  if (!isMember) {
+    bot.answerCallbackQuery(query.id, {
+      text: '⚠️ Channel join ပေးပါ!',
+      show_alert: true,
+    });
+    bot.editMessageText(getForceJoinMessage(), {
+      chat_id: query.message.chat.id,
+      message_id: query.message.message_id,
+      parse_mode: 'Markdown',
+      reply_markup: getForceJoinKeyboard(),
+    });
+    return false;
+  }
+  return true;
+}
 
 // ─── Middleware: Register user & check ban ───────────────────
 bot.on('message', (msg) => {
@@ -146,23 +185,30 @@ bot.onText(/\/stats/, (msg) => {
 });
 
 // ─── User Commands ───────────────────────────────────────────
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
+
+  logUserAction(bot, msg.from, '🟢 Bot Started', 'User opened the bot');
   handleCommand(bot, msg, 'start');
 });
 
-bot.onText(/\/help/, (msg) => {
+bot.onText(/\/help/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
   handleCommand(bot, msg, 'help');
 });
 
-bot.onText(/\/menu/, (msg) => {
+bot.onText(/\/menu/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
   handleCommand(bot, msg, 'menu');
 });
 
-bot.onText(/\/trial/, (msg) => {
+bot.onText(/\/trial/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
+
   const { hasUsedTrial, getTrialConfig } = require('./vpn/trialManager');
 
   if (hasUsedTrial(msg.from.id)) {
@@ -194,8 +240,9 @@ bot.onText(/\/trial/, (msg) => {
   );
 });
 
-bot.onText(/\/mykey/, (msg) => {
+bot.onText(/\/mykey/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
   handleCallback(bot, {
     id: 'cmd',
     from: msg.from,
@@ -204,8 +251,9 @@ bot.onText(/\/mykey/, (msg) => {
   });
 });
 
-bot.onText(/\/account/, (msg) => {
+bot.onText(/\/account/, async (msg) => {
   if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
   handleCallback(bot, {
     id: 'cmd',
     from: msg.from,
@@ -221,13 +269,43 @@ bot.onText(/\/cancel/, (msg) => {
 });
 
 // ─── Callback Query Handler ─────────────────────────────────
-bot.on('callback_query', (query) => {
+bot.on('callback_query', async (query) => {
   if (isBanned(query.from.id)) {
     bot.answerCallbackQuery(query.id, { text: '⛔ You are banned' });
     return;
   }
 
   registerUser(query.from);
+
+  // Check join callback
+  if (query.data === 'check_join') {
+    const isMember = await checkMembership(bot, query.from.id);
+    if (isMember) {
+      bot.answerCallbackQuery(query.id, { text: '✅ Join ပြီးပါပြီ!' });
+      bot.editMessageText(
+        `🔐 *VPN Key Bot*\n\n` +
+        `Channel join ပြီးပါပြီ! အောက်က menu ကနေ ရွေးချယ်ပါ 👇`,
+        {
+          chat_id: query.message.chat.id,
+          message_id: query.message.message_id,
+          parse_mode: 'Markdown',
+          reply_markup: getMainMenuKeyboard(),
+        }
+      );
+      logUserAction(bot, query.from, '📢 Channel Joined', 'User joined the required channel');
+      return;
+    }
+    bot.answerCallbackQuery(query.id, {
+      text: '❌ Channel ကို join ပေးပါ!',
+      show_alert: true,
+    });
+    return;
+  }
+
+  // Force join check for non-admin callbacks
+  if (!query.data.startsWith('xui_') && !query.data.startsWith('admin_') && !query.data.startsWith('admsrv')) {
+    if (!await enforceJoinCallback(query)) return;
+  }
 
   // Check if it's an X-UI callback
   if (query.data.startsWith('xui_')) {
