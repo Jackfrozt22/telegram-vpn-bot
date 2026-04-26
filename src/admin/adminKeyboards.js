@@ -10,6 +10,7 @@ function getAdminMenuKeyboard() {
         { text: '📢 Broadcast', callback_data: 'admin_broadcast' },
       ],
       [
+        { text: '🌐 X-UI Panel', callback_data: 'xui_menu' },
         { text: '🚫 Banned Users', callback_data: 'admin_banned' },
       ],
       [{ text: '« Main Menu', callback_data: 'back_to_menu' }],

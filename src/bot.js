@@ -8,6 +8,7 @@ const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers, incrementStat } = require('./admin/userManager');
 const { handleAdminCallback, isBroadcasting, clearBroadcast } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
+const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 
 const fs = require('fs');
 const path = require('path');
@@ -214,6 +215,7 @@ bot.onText(/\/ss/, (msg) => {
 
 bot.onText(/\/cancel/, (msg) => {
   clearBroadcast(msg.from.id);
+  clearAdminState(msg.from.id);
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
 
@@ -226,12 +228,25 @@ bot.on('callback_query', (query) => {
 
   registerUser(query.from);
 
+  // Check if it's an X-UI callback
+  if (query.data.startsWith('xui_')) {
+    return handleXuiCallback(bot, query);
+  }
+
   // Check if it's an admin callback
   if (query.data.startsWith('admin_') || query.data.startsWith('admsrv')) {
     return handleAdminCallback(bot, query);
   }
 
   return handleCallback(bot, query);
+});
+
+// ─── X-UI Admin message handler ──────────────────────────────
+bot.on('message', async (msg) => {
+  if (!msg.text || msg.text.startsWith('/')) return;
+  if (!isAdmin(msg.from.id)) return;
+  const handled = await handleXuiAdminMessage(bot, msg);
+  if (handled) return;
 });
 
 // ─── Broadcast message handler ───────────────────────────────
@@ -265,7 +280,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && isBroadcasting(msg.from.id)) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
     'Type /help to see available commands or use the menu below.',
