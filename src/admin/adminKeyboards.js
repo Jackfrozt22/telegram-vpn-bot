@@ -17,6 +17,10 @@ function getAdminMenuKeyboard() {
         { text: '💰 Orders', callback_data: 'admin_orders' },
         { text: '🎁 Trial Control', callback_data: 'admin_trial_control' },
       ],
+      [
+        { text: '🔑 Key Extend', callback_data: 'admin_key_extend' },
+        { text: '📊 Daily Stats', callback_data: 'admin_daily_stats' },
+      ],
       [{ text: '« Main Menu', callback_data: 'back_to_menu' }],
     ],
   };

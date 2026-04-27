@@ -666,6 +666,204 @@ async function handleAdminCallback(bot, query) {
     );
   }
 
+  // ─── Daily Stats (manual trigger) ───────────────────────────
+  if (data === 'admin_daily_stats') {
+    const { sendDailyStats } = require('../middleware/dailyStats');
+    await sendDailyStats(bot);
+    bot.answerCallbackQuery(query.id, { text: '📊 Stats report ပို့ပြီးပါပြီ!' });
+    return true;
+  }
+
+  // ─── Key Extend: Prompt for email ─────────────────────────
+  if (data === 'admin_key_extend') {
+    broadcastState[`extend_${userId}`] = true;
+    return bot.editMessageText(
+      `🔑 *Key Extend*\n\n` +
+      `Extend လုပ်ချင်တဲ့ client email ကို ရိုက်ထည့်ပါ:\n\n` +
+      `_X\\-UI Panel > Clients ထဲမှာ email ကြည့်ပါ_`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Key Extend: Select action ────────────────────────────
+  if (data.startsWith('admin_extend_action_')) {
+    const email = data.replace('admin_extend_action_', '');
+    return bot.editMessageText(
+      `🔑 *Key Extend*\n\nClient: \`${email}\`\n\nAction ရွေးပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '📅 +7 Days', callback_data: `extend_days_7_${email}` },
+              { text: '📅 +14 Days', callback_data: `extend_days_14_${email}` },
+              { text: '📅 +30 Days', callback_data: `extend_days_30_${email}` },
+            ],
+            [
+              { text: '📦 +50 GB', callback_data: `extend_gb_50_${email}` },
+              { text: '📦 +100 GB', callback_data: `extend_gb_100_${email}` },
+              { text: '📦 +200 GB', callback_data: `extend_gb_200_${email}` },
+            ],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Key Extend: Apply days ───────────────────────────────
+  if (data.startsWith('extend_days_')) {
+    const xuiClient = require('../vpn/xuiClient');
+    const parts = data.replace('extend_days_', '').split('_');
+    const days = parseInt(parts[0]);
+    const email = parts.slice(1).join('_');
+
+    try {
+      const clients = await xuiClient.getAllClients();
+      const client = clients.find((c) => c.email === email);
+
+      if (!client) {
+        return bot.editMessageText(`❌ Client "${email}" မတွေ့ပါ။`, {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getAdminBackKeyboard(),
+        });
+      }
+
+      const addMs = days * 24 * 60 * 60 * 1000;
+      const currentExpiry = client.expiryTime > 0 ? client.expiryTime : Date.now();
+      const newExpiry = currentExpiry + addMs;
+
+      const updatedConfig = {
+        id: client.id,
+        flow: client.flow || '',
+        email: client.email,
+        limitIp: client.limitIp || 0,
+        totalGB: client.total || 0,
+        expiryTime: newExpiry,
+        enable: true,
+        tgId: client.tgId || '',
+        subId: client.subId || '',
+        reset: client.reset || 0,
+      };
+      if (client.password !== undefined) {
+        updatedConfig.password = client.password;
+        updatedConfig.method = client.method || '';
+      }
+
+      await xuiClient.updateClient(client.id, client.inboundId, updatedConfig);
+
+      const newExpiryDate = new Date(newExpiry).toLocaleDateString('en-GB');
+
+      // Notify user
+      if (client.tgId) {
+        try {
+          await bot.sendMessage(client.tgId,
+            `🎉 VPN Key သက်တမ်းတိုးပြီးပါပြီ!\n\n📅 +${days} Days ထပ်ပေးထားပါတယ်\n📅 New Expiry: ${newExpiryDate}\n\nBot Menu: /menu`
+          );
+        } catch {}
+      }
+
+      return bot.editMessageText(
+        `✅ Key extend ပြီးပါပြီ!\n\nClient: ${email}\n📅 +${days} Days\n📅 New Expiry: ${newExpiryDate}`,
+        {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔑 Key Extend', callback_data: 'admin_key_extend' }],
+              [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Error: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+  }
+
+  // ─── Key Extend: Apply GB ────────────────────────────────
+  if (data.startsWith('extend_gb_')) {
+    const xuiClient = require('../vpn/xuiClient');
+    const parts = data.replace('extend_gb_', '').split('_');
+    const gb = parseInt(parts[0]);
+    const email = parts.slice(1).join('_');
+
+    try {
+      const clients = await xuiClient.getAllClients();
+      const client = clients.find((c) => c.email === email);
+
+      if (!client) {
+        return bot.editMessageText(`❌ Client "${email}" မတွေ့ပါ။`, {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getAdminBackKeyboard(),
+        });
+      }
+
+      const addBytes = gb * 1024 * 1024 * 1024;
+      const currentTotal = client.total || 0;
+      const newTotal = currentTotal + addBytes;
+
+      const updatedConfig = {
+        id: client.id,
+        flow: client.flow || '',
+        email: client.email,
+        limitIp: client.limitIp || 0,
+        totalGB: newTotal,
+        expiryTime: client.expiryTime || 0,
+        enable: true,
+        tgId: client.tgId || '',
+        subId: client.subId || '',
+        reset: client.reset || 0,
+      };
+      if (client.password !== undefined) {
+        updatedConfig.password = client.password;
+        updatedConfig.method = client.method || '';
+      }
+
+      await xuiClient.updateClient(client.id, client.inboundId, updatedConfig);
+
+      const totalGBNew = (newTotal / 1024 / 1024 / 1024).toFixed(0);
+
+      // Notify user
+      if (client.tgId) {
+        try {
+          await bot.sendMessage(client.tgId,
+            `🎉 VPN Key data ထပ်ပေးပြီးပါပြီ!\n\n📦 +${gb} GB ထပ်ပေးထားပါတယ်\n📦 Total: ${totalGBNew} GB\n\nBot Menu: /menu`
+          );
+        } catch {}
+      }
+
+      return bot.editMessageText(
+        `✅ Key extend ပြီးပါပြီ!\n\nClient: ${email}\n📦 +${gb} GB\n📦 Total: ${totalGBNew} GB`,
+        {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔑 Key Extend', callback_data: 'admin_key_extend' }],
+              [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Error: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+  }
+
   return false;
 }
 
@@ -685,4 +883,12 @@ function clearTrialReset(userId) {
   delete broadcastState[`reset_${String(userId)}`];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset };
+function isExtendingKey(userId) {
+  return broadcastState[`extend_${String(userId)}`] === true;
+}
+
+function clearKeyExtend(userId) {
+  delete broadcastState[`extend_${String(userId)}`];
+}
+
+module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend };

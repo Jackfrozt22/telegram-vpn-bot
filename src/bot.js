@@ -5,12 +5,14 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
 const { logUserAction } = require('./middleware/userLogger');
 const { startUsageAlertScheduler } = require('./middleware/usageAlert');
+const { startDailyStatsScheduler } = require('./middleware/dailyStats');
+const { startKeyCleanupScheduler } = require('./middleware/keyCleanup');
 const { recordReferral, findReferrerByCode } = require('./vpn/referralManager');
 const { getAllPendingOrders, approveOrder, rejectOrder, getOrderById, updateOrderScreenshot } = require('./vpn/premiumManager');
 const { hasUsedTrial, getTrialInfo } = require('./vpn/trialManager');
@@ -30,8 +32,10 @@ const bot = new TelegramBot(token, { polling: true });
 
 console.log('VPN Key Bot is running...');
 
-// Start usage alert scheduler
+// Start schedulers
 startUsageAlertScheduler(bot);
+startDailyStatsScheduler(bot);
+startKeyCleanupScheduler(bot);
 
 // Admin state for order management
 const adminOrderState = new Map();
@@ -547,6 +551,57 @@ bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (!isAdmin(msg.from.id)) return;
 
+  // Key extend: admin sends client email
+  if (isExtendingKey(msg.from.id)) {
+    clearKeyExtend(msg.from.id);
+    const email = msg.text.trim();
+
+    const xuiClient = require('./vpn/xuiClient');
+    try {
+      const clients = await xuiClient.getAllClients();
+      const client = clients.find((c) => c.email === email);
+
+      if (!client) {
+        await bot.sendMessage(msg.chat.id, `❌ Client "${email}" မတွေ့ပါ။`);
+        return;
+      }
+
+      const usedGB = ((client.up + client.down) / 1024 / 1024 / 1024).toFixed(2);
+      const totalGB = client.total > 0 ? (client.total / 1024 / 1024 / 1024).toFixed(0) : 'Unlimited';
+      const expiry = client.expiryTime > 0
+        ? new Date(client.expiryTime).toLocaleDateString('en-GB')
+        : 'Unlimited';
+
+      await bot.sendMessage(msg.chat.id,
+        `🔑 Client Found!\n\n` +
+        `Email: ${email}\n` +
+        `📦 Data: ${usedGB} GB / ${totalGB} GB\n` +
+        `📅 Expiry: ${expiry}\n\n` +
+        `Action ရွေးပါ:`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '📅 +7 Days', callback_data: `extend_days_7_${email}` },
+                { text: '📅 +14 Days', callback_data: `extend_days_14_${email}` },
+                { text: '📅 +30 Days', callback_data: `extend_days_30_${email}` },
+              ],
+              [
+                { text: '📦 +50 GB', callback_data: `extend_gb_50_${email}` },
+                { text: '📦 +100 GB', callback_data: `extend_gb_100_${email}` },
+                { text: '📦 +200 GB', callback_data: `extend_gb_200_${email}` },
+              ],
+              [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      await bot.sendMessage(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+    return;
+  }
+
   // Trial reset: admin sends user ID
   if (isResettingTrial(msg.from.id)) {
     clearTrialReset(msg.from.id);
@@ -620,7 +675,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
     'Menu ကို အသုံးပြုပါ:',
