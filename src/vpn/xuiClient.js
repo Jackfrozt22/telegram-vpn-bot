@@ -124,11 +124,23 @@ class XUIClient {
   }
 
   async updateClient(clientUuid, inboundId, clientConfig) {
-    const data = {
-      id: inboundId,
-      settings: JSON.stringify({ clients: [clientConfig] }),
-    };
-    return await this.request('post', `/xui/inbound/updateClient/${clientUuid}`, data);
+    // Use full inbound update approach (updateClient endpoint not supported on all x-ui versions)
+    const inbound = await this.getInbound(inboundId);
+    if (!inbound) throw new Error('Inbound not found');
+
+    const settings = JSON.parse(inbound.settings);
+    const clientIndex = settings.clients.findIndex((c) => c.id === clientUuid || c.email === clientConfig.email);
+    if (clientIndex === -1) throw new Error('Client not found in inbound');
+
+    // Update client fields
+    const existing = settings.clients[clientIndex];
+    for (const key of Object.keys(clientConfig)) {
+      existing[key] = clientConfig[key];
+    }
+
+    const updateData = { ...inbound, settings: JSON.stringify(settings) };
+    delete updateData.clientStats;
+    return await this.request('post', `/xui/inbound/update/${inboundId}`, updateData);
   }
 
   async resetClientTraffic(inboundId, email) {
