@@ -678,12 +678,12 @@ async function handleAdminCallback(bot, query) {
   if (data === 'admin_key_extend') {
     broadcastState[`extend_${userId}`] = true;
     return bot.editMessageText(
-      `🔑 *Key Extend*\n\n` +
+      `🔑 <b>Key Extend</b>\n\n` +
       `Extend လုပ်ချင်တဲ့ client email ကို ရိုက်ထည့်ပါ:\n\n` +
-      `_X\\-UI Panel > Clients ထဲမှာ email ကြည့်ပါ_`,
+      `<i>X-UI Panel &gt; Clients ထဲမှာ email ကြည့်ပါ</i>`,
       {
         chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
@@ -697,10 +697,10 @@ async function handleAdminCallback(bot, query) {
   if (data.startsWith('admin_extend_action_')) {
     const email = data.replace('admin_extend_action_', '');
     return bot.editMessageText(
-      `🔑 *Key Extend*\n\nClient: \`${email}\`\n\nAction ရွေးပါ:`,
+      `🔑 <b>Key Extend</b>\n\nClient: <code>${email}</code>\n\nAction ရွေးပါ:`,
       {
         chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: {
           inline_keyboard: [
             [

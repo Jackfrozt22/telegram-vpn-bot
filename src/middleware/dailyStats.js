@@ -1,10 +1,10 @@
 const { getAllUsers, getStats } = require('../admin/userManager');
 const xuiClient = require('../vpn/xuiClient');
-
-const ADMIN_ID = process.env.ADMIN_ID || '';
+const { getAdminIds } = require('../admin/auth');
 
 async function sendDailyStats(bot) {
-  if (!ADMIN_ID) return;
+  const adminIds = getAdminIds();
+  if (adminIds.length === 0) return;
 
   try {
     const stats = getStats();
@@ -53,7 +53,9 @@ async function sendDailyStats(bot) {
       `  Expired: <b>${expiredKeys}</b>\n\n` +
       `📦 <b>Total Data Used:</b> ${totalUsedGB.toFixed(2)} GB`;
 
-    await bot.sendMessage(ADMIN_ID, text, { parse_mode: 'HTML' });
+    for (const adminId of adminIds) {
+      await bot.sendMessage(adminId, text, { parse_mode: 'HTML' });
+    }
   } catch (err) {
     console.error('Daily stats report failed:', err.message);
   }
