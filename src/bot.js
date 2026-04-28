@@ -483,7 +483,7 @@ bot.on('callback_query', async (query) => {
   }
 
   // Check if it's an admin callback
-  if (query.data.startsWith('admin_') || query.data.startsWith('admsrv')) {
+  if (query.data.startsWith('admin_') || query.data.startsWith('admsrv') || query.data.startsWith('extend_days_') || query.data.startsWith('extend_gb_')) {
     return handleAdminCallback(bot, query);
   }
 
