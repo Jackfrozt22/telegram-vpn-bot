@@ -272,10 +272,10 @@ class XUIClient {
       reset: 0,
     };
 
-    // For Shadowsocks, add password field
+    // For Shadowsocks, add password and method fields
     if (options.protocol === 'shadowsocks') {
       config.password = crypto.randomBytes(16).toString('base64');
-      config.method = '';
+      config.method = options.method || 'aes-256-gcm';
     }
 
     return config;

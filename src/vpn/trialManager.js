@@ -118,12 +118,14 @@ async function createTrialKey(userId, username) {
     const safeName = (username || 'user').replace(/[^a-zA-Z0-9_]/g, '');
     const email = `trial_${safeName}_${userId}_${Date.now()}`;
 
+    const inboundSettings = JSON.parse(inbound.settings);
     const clientConfig = xuiClient.createClientConfig(email, {
       expiryDays: config.expiryDays,
       totalGB: config.totalGB * 1024 * 1024 * 1024,
       limitIp: config.ipLimit,
       tgId: String(userId),
       protocol: inbound.protocol,
+      method: inboundSettings.method || 'aes-256-gcm',
     });
 
     const res = await xuiClient.addClient(config.inboundId, clientConfig);
