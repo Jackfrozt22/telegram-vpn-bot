@@ -356,6 +356,72 @@ bot.onText(/\/account/, async (msg) => {
   });
 });
 
+bot.onText(/\/id/, async (msg) => {
+  if (isBanned(msg.from.id)) return;
+  if (!await enforceJoin(msg)) return;
+
+  const userId = String(msg.from.id);
+  const { getTrialInfo } = require('./vpn/trialManager');
+  const { getUserPremiumKeys } = require('./vpn/premiumManager');
+  const { getUserReferral } = require('./vpn/referralManager');
+  const xuiClient = require('./vpn/xuiClient');
+
+  const user = getUser(userId);
+  const trial = getTrialInfo(userId);
+  const premium = getUserPremiumKeys(userId);
+  const ref = getUserReferral(userId);
+
+  const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const userName = escHtml(msg.from.first_name || 'User');
+  const username = msg.from.username ? `@${escHtml(msg.from.username)}` : 'N/A';
+
+  let text =
+    `📋 <b>My Information</b>\n\n` +
+    `<b>Name:</b> ${userName}\n` +
+    `<b>Username:</b> ${username}\n` +
+    `<b>User ID:</b> <code>${userId}</code>\n` +
+    `<b>Joined:</b> ${user ? new Date(user.joinedAt).toLocaleDateString('en-GB') : 'N/A'}\n` +
+    `<b>Last Active:</b> ${user ? new Date(user.lastActive).toLocaleDateString('en-GB') : 'N/A'}\n\n`;
+
+  text += `🎁 <b>Trial Key:</b> ${trial && trial.count > 0 ? `ယူပြီး (${trial.count})` : 'မယူရသေးပါ'}\n`;
+  text += `💎 <b>Premium Keys:</b> ${premium.length} ခု\n`;
+  text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n\n`;
+
+  const allKeys = [];
+  if (trial && trial.keys) allKeys.push(...trial.keys.map(k => ({ ...k, type: 'Trial' })));
+  allKeys.push(...premium.map(k => ({ ...k, type: 'Premium' })));
+
+  if (allKeys.length > 0) {
+    try {
+      const clients = await xuiClient.getAllClients();
+      text += `<b>🔑 Keys:</b>\n`;
+      for (const key of allKeys) {
+        const client = clients.find(c => c.email === key.email);
+        if (client) {
+          const usedGB = ((client.up + client.down) / 1024 / 1024 / 1024).toFixed(2);
+          const totalGB = client.total > 0 ? (client.total / 1024 / 1024 / 1024).toFixed(0) : '∞';
+          const expiry = client.expiryTime > 0 ? new Date(client.expiryTime).toLocaleDateString('en-GB') : '∞';
+          const now = Date.now();
+          const isExpired = client.expiryTime > 0 && client.expiryTime < now;
+          const status = !client.enable ? '🔴 Disabled' : isExpired ? '🔴 Expired' : '🟢 Active';
+          const daysLeft = client.expiryTime > 0 ? Math.max(0, Math.ceil((client.expiryTime - now) / 86400000)) : '∞';
+
+          text += `\n${status} <b>${key.type}</b>\n`;
+          text += `  📊 Data: ${usedGB} / ${totalGB} GB\n`;
+          text += `  📅 Expiry: ${expiry} (${daysLeft} days left)\n`;
+          text += `  🔗 <code>${key.link}</code>\n`;
+        }
+      }
+    } catch {
+      text += `\n<i>Key data ယူ၍မရပါ</i>\n`;
+    }
+  } else {
+    text += `<i>Key မရှိသေးပါ</i>`;
+  }
+
+  bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+});
+
 bot.onText(/\/cancel/, (msg) => {
   clearBroadcast(msg.from.id);
   clearAdminState(msg.from.id);

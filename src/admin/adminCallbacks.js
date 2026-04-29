@@ -57,38 +57,56 @@ async function handleAdminCallback(bot, query) {
   }
 
   // ─── Users List ────────────────────────────────────────────
-  if (data === 'admin_users') {
+  if (data === 'admin_users' || data.startsWith('admin_users_page_')) {
     const users = getAllUsers();
-    const userList = Object.values(users);
+    const userList = Object.values(users).sort((a, b) => new Date(b.lastActive) - new Date(a.lastActive));
 
     if (userList.length === 0) {
-      return bot.editMessageText('👥 *Users*\n\nNo users yet.', {
+      return bot.editMessageText('👥 <b>Users</b>\n\nNo users yet.', {
         chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: getAdminBackKeyboard(),
       });
     }
 
-    let text = `👥 *Users* (${userList.length})\n\n`;
+    const page = data.startsWith('admin_users_page_') ? parseInt(data.replace('admin_users_page_', '')) : 0;
+    const perPage = 10;
+    const start = page * perPage;
+    const pageUsers = userList.slice(start, start + perPage);
+    const totalPages = Math.ceil(userList.length / perPage);
+
+    const { getTrialInfo } = require('../vpn/trialManager');
+    const { getUserPremiumKeys } = require('../vpn/premiumManager');
+    const { isBanned: checkBanned } = require('./userManager');
+    const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    let text = `👥 <b>Users</b> (${userList.length}) — Page ${page + 1}/${totalPages}\n\n`;
     const buttons = [];
 
-    userList.slice(0, 15).forEach((u) => {
-      const username = u.username ? `@${u.username}` : u.firstName;
-      text += `• ${username} (ID: \`${u.id}\`)\n`;
-      buttons.push([
-        { text: `${username} - ${u.id}`, callback_data: `admin_userinfo_${u.id}` },
-      ]);
-    });
+    for (const u of pageUsers) {
+      const uname = u.username ? `@${escHtml(u.username)}` : escHtml(u.firstName);
+      const banned = checkBanned(u.id) ? '🚫' : '';
+      const trial = getTrialInfo(String(u.id));
+      const premium = getUserPremiumKeys(String(u.id));
+      const trialTag = trial && trial.count > 0 ? '🎁' : '';
+      const premiumTag = premium.length > 0 ? '💎' : '';
+      const lastSeen = u.lastActive ? new Date(u.lastActive).toLocaleDateString('en-GB') : 'N/A';
 
-    if (userList.length > 15) {
-      text += `\n_...and ${userList.length - 15} more_`;
+      text += `${banned}${trialTag}${premiumTag} ${uname} | <code>${u.id}</code> | ${lastSeen}\n`;
+      buttons.push([
+        { text: `${uname} - ${u.id}`, callback_data: `admin_userinfo_${u.id}` },
+      ]);
     }
 
+    const navBtns = [];
+    if (page > 0) navBtns.push({ text: '« Prev', callback_data: `admin_users_page_${page - 1}` });
+    if (page < totalPages - 1) navBtns.push({ text: 'Next »', callback_data: `admin_users_page_${page + 1}` });
+    if (navBtns.length > 0) buttons.push(navBtns);
     buttons.push([{ text: '« Admin Menu', callback_data: 'admin_menu' }]);
 
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: { inline_keyboard: buttons },
     });
   }
@@ -105,20 +123,62 @@ async function handleAdminCallback(bot, query) {
       });
     }
 
-    const username = user.username ? `@${user.username}` : 'N/A';
-    const text =
-      `👤 *User Info*\n\n` +
-      `*Name:* ${user.firstName} ${user.lastName || ''}\n` +
-      `*Username:* ${username}\n` +
-      `*ID:* \`${user.id}\`\n` +
-      `*Joined:* ${user.joinedAt}\n` +
-      `*Last Active:* ${user.lastActive}\n` +
-      `*Keys Generated:* ${user.totalKeys || 0}\n` +
-      `*Configs Generated:* ${user.totalConfigs || 0}\n`;
+    const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const username = user.username ? `@${escHtml(user.username)}` : 'N/A';
+    const { getTrialInfo } = require('../vpn/trialManager');
+    const { getUserPremiumKeys } = require('../vpn/premiumManager');
+    const { getUserReferral } = require('../vpn/referralManager');
+    const { isBanned: checkBanned } = require('./userManager');
+    const xuiClient = require('../vpn/xuiClient');
+
+    const trial = getTrialInfo(targetId);
+    const premium = getUserPremiumKeys(targetId);
+    const ref = getUserReferral(targetId);
+    const banned = checkBanned(targetId);
+
+    let text =
+      `👤 <b>User Info</b>\n\n` +
+      `<b>Name:</b> ${escHtml(user.firstName)} ${escHtml(user.lastName || '')}\n` +
+      `<b>Username:</b> ${username}\n` +
+      `<b>ID:</b> <code>${user.id}</code>\n` +
+      `<b>Status:</b> ${banned ? '🚫 Banned' : '🟢 Active'}\n` +
+      `<b>Joined:</b> ${new Date(user.joinedAt).toLocaleDateString('en-GB')}\n` +
+      `<b>Last Active:</b> ${new Date(user.lastActive).toLocaleDateString('en-GB')}\n\n`;
+
+    // Trial info
+    text += `🎁 <b>Trial:</b> ${trial && trial.count > 0 ? `ယူပြီး (${trial.count})` : 'မယူရသေး'}\n`;
+    text += `💎 <b>Premium:</b> ${premium.length} ခု\n`;
+    text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက်\n\n`;
+
+    // Live key data from X-UI
+    const allKeys = [];
+    if (trial && trial.keys) allKeys.push(...trial.keys.map(k => ({ ...k, type: 'Trial' })));
+    allKeys.push(...premium.map(k => ({ ...k, type: 'Premium' })));
+
+    if (allKeys.length > 0) {
+      try {
+        const clients = await xuiClient.getAllClients();
+        text += `<b>🔑 Keys:</b>\n`;
+        for (const key of allKeys) {
+          const client = clients.find(c => c.email === key.email);
+          if (client) {
+            const usedGB = ((client.up + client.down) / 1024 / 1024 / 1024).toFixed(2);
+            const totalGB = client.total > 0 ? (client.total / 1024 / 1024 / 1024).toFixed(0) : '∞';
+            const expiry = client.expiryTime > 0 ? new Date(client.expiryTime).toLocaleDateString('en-GB') : '∞';
+            const now = Date.now();
+            const isExpired = client.expiryTime > 0 && client.expiryTime < now;
+            const status = !client.enable ? '🔴' : isExpired ? '🔴' : '🟢';
+            const daysLeft = client.expiryTime > 0 ? Math.max(0, Math.ceil((client.expiryTime - now) / 86400000)) : '∞';
+            text += `  ${status} ${key.type} | ${usedGB}/${totalGB} GB | ${expiry} (${daysLeft}d)\n`;
+            text += `  <code>${key.email}</code>\n`;
+          }
+        }
+      } catch {}
+    }
 
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getUserActionsKeyboard(targetId),
     });
   }

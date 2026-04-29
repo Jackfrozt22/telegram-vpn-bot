@@ -27,6 +27,7 @@ function handleCommand(bot, msg, command) {
         `/trial - Trial Key ထုတ်ယူရန်\n` +
         `/mykey - ကိုယ့် Key ကြည့်ရန်\n` +
         `/account - ကိုယ့်အကောင့် ကြည့်ရန်\n` +
+        `/id - ကိုယ့် info အပြည့်အစုံ ကြည့်ရန်\n` +
         `/menu - Menu ပြရန်`,
         { parse_mode: 'Markdown' }
       );
