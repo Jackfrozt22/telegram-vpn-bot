@@ -352,7 +352,7 @@ class XUIClient {
           ...client,
           up: stats.up || 0,
           down: stats.down || 0,
-          total: stats.total || client.totalGB || 0,
+          total: client.totalGB || stats.total || 0,
           inboundId: inbound.id,
           inboundRemark: inbound.remark,
           protocol: inbound.protocol,
