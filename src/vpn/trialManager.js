@@ -115,8 +115,8 @@ async function createTrialKey(userId, username) {
       return { success: false, msg: 'Inbound not found' };
     }
 
-    const safeName = (username || 'user').replace(/[^a-zA-Z0-9_]/g, '');
-    const email = `trial_${safeName}_${userId}_${Date.now()}`;
+    const safeName = (username || 'user').replace(/[^a-zA-Z0-9_]/g, '').substring(0, 8);
+    const email = `t_${safeName}_${userId}`;
 
     const inboundSettings = JSON.parse(inbound.settings);
     const clientConfig = xuiClient.createClientConfig(email, {
