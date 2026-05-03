@@ -397,7 +397,8 @@ async function handleAdminCallback(bot, query) {
       `📦 Data: *${config.totalGB} GB*\n` +
       `📅 Expiry: *${config.expiryDays} Days*\n` +
       `📱 IP Limit: *${config.ipLimit}*\n` +
-      `🔢 Max per user: *${config.maxTrials}*\n\n` +
+      `🔢 Max per user: *${config.maxTrials}*\n` +
+      `✏️ Custom Msg: ${config.customMessage ? `"${config.customMessage}"` : '_မသတ်မှတ်ရသေး_'}\n\n` +
       `Setting ပြင်ချင်ရင် အောက်က button နှိပ်ပါ`,
       {
         chat_id: chatId, message_id: messageId,
@@ -413,6 +414,7 @@ async function handleAdminCallback(bot, query) {
               { text: '📱 IP Limit ပြင်', callback_data: 'admin_trial_set_ip' },
               { text: '🔢 Max Trials ပြင်', callback_data: 'admin_trial_set_max' },
             ],
+            [{ text: '✏️ Custom Message ပြင်', callback_data: 'admin_trial_set_msg' }],
             [
               { text: '🔄 User Reset', callback_data: 'admin_trial_reset_user' },
               { text: '🔄 All Reset', callback_data: 'admin_trial_reset_all' },
@@ -485,6 +487,83 @@ async function handleAdminCallback(bot, query) {
         },
       }
     );
+  }
+
+  // ─── Trial Custom Message ──────────────────────────────────
+  if (data === 'admin_trial_set_msg') {
+    const { getTrialConfig } = require('../vpn/trialManager');
+    const config = getTrialConfig();
+    broadcastState[`custommsg_${userId}`] = true;
+    return bot.editMessageText(
+      `✏️ <b>Custom Message ပြင်</b>\n\n` +
+      `<b>Current:</b> ${config.customMessage ? config.customMessage : '<i>မသတ်မှတ်ရသေး</i>'}\n\n` +
+      `User trial key ယူတဲ့အခါ ပြမယ့် message ကို ရိုက်ထည့်ပါ:\n` +
+      `(ဖျက်ချင်ရင် <code>clear</code> ရိုက်ပါ)`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Cancel', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Admin Key Delete ─────────────────────────────────────
+  if (data === 'admin_key_delete') {
+    broadcastState[`keydelete_${userId}`] = true;
+    return bot.editMessageText(
+      `🗑 <b>Key Delete</b>\n\n` +
+      `ဖျက်ချင်တဲ့ client email ကို ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('confirm_delete_')) {
+    const email = data.replace('confirm_delete_', '');
+    const xuiClient = require('../vpn/xuiClient');
+    try {
+      const clients = await xuiClient.getAllClients();
+      const client = clients.find(c => c.email === email);
+      if (!client) {
+        return bot.editMessageText(`❌ Client <code>${email}</code> not found.`, {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: getAdminBackKeyboard(),
+        });
+      }
+
+      const inbound = await xuiClient.getInbound(client.inboundId);
+      const settings = JSON.parse(inbound.settings);
+      settings.clients = settings.clients.filter(c => c.email !== email);
+      const updateData = { ...inbound, settings: JSON.stringify(settings) };
+      delete updateData.clientStats;
+      await xuiClient.request('post', `/xui/inbound/update/${client.inboundId}`, updateData);
+
+      return bot.editMessageText(
+        `✅ Client <code>${email}</code> ဖျက်ပြီးပါပြီ!`,
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: getAdminBackKeyboard(),
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Error: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
   }
 
   // ─── Trial Reset: Single User (prompt for ID) ──────────────
@@ -951,4 +1030,20 @@ function clearKeyExtend(userId) {
   delete broadcastState[`extend_${String(userId)}`];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend };
+function isSettingCustomMsg(userId) {
+  return broadcastState[`custommsg_${String(userId)}`] === true;
+}
+
+function clearCustomMsg(userId) {
+  delete broadcastState[`custommsg_${String(userId)}`];
+}
+
+function isDeletingKey(userId) {
+  return broadcastState[`keydelete_${String(userId)}`] === true;
+}
+
+function clearKeyDelete(userId) {
+  delete broadcastState[`keydelete_${String(userId)}`];
+}
+
+module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete };

@@ -50,9 +50,10 @@ function getTrialConfig() {
       totalGB: saved.totalGB || DEFAULT_CONFIG.totalGB,
       ipLimit: saved.ipLimit || DEFAULT_CONFIG.ipLimit,
       maxTrials: saved.maxTrials || DEFAULT_CONFIG.maxTrials,
+      customMessage: saved.customMessage || '',
     };
   }
-  return { ...DEFAULT_CONFIG };
+  return { ...DEFAULT_CONFIG, customMessage: '' };
 }
 
 function updateTrialConfig(updates) {

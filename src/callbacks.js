@@ -5,6 +5,7 @@ const { getUserReferral, getReferralCode, canClaimBonus, claimReferralBonus, get
 const xuiClient = require('./vpn/xuiClient');
 const { getUser } = require('./admin/userManager');
 const { logUserAction } = require('./middleware/userLogger');
+const QRCode = require('qrcode');
 
 async function handleCallback(bot, query) {
   const chatId = query.message.chat.id;
@@ -92,28 +93,41 @@ async function handleCallback(bot, query) {
     }
 
     const d = result.data;
+    const config = getTrialConfig();
     const expiryDate = new Date(d.expiryDate).toLocaleDateString('en-GB');
 
     logUserAction(bot, query.from, '🎁 Trial Key Claimed',
-      `📦 Data: ${d.dataGB} GB\n` +
-      `📅 Expiry: ${expiryDate}\n` +
-      `📱 Device: ${d.ipLimit}\n` +
-      `🔗 Email: \`${d.email}\``
+      `📦 Data: ${d.dataGB} GB | 📅 Expiry: ${expiryDate} | 📱 Device: ${d.ipLimit} | 🔗 ${d.email}`
     );
 
-    return bot.editMessageText(
-      `🎁 *Trial Key ရရှိပါပြီ!*\n\n` +
-      `📅 Expiry: *${expiryDate}*\n` +
-      `📦 Data: *${d.dataGB} GB*\n` +
-      `📱 Device: *${d.ipLimit}*\n\n` +
-      `🔗 *Config Link:*\n\`${d.link}\`\n\n` +
-      `_Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။_`,
-      {
-        chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+    const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const customMsg = config.customMessage ? `\n${escHtml(config.customMessage)}\n` : '';
+
+    const caption =
+      `🎁 <b>Trial Key ရရှိပါပြီ!</b>\n\n` +
+      `📅 Expiry: <b>${expiryDate}</b>\n` +
+      `📦 Data: <b>${d.dataGB} GB</b>\n` +
+      `📱 Device: <b>${d.ipLimit}</b>\n\n` +
+      `🔗 <b>Config Link:</b>\n<code>${escHtml(d.link)}</code>\n` +
+      customMsg +
+      `\n<i>Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။</i>`;
+
+    try {
+      const qrBuffer = await QRCode.toBuffer(d.link, { width: 300, margin: 2 });
+      await bot.deleteMessage(chatId, messageId).catch(() => {});
+      await bot.sendPhoto(chatId, qrBuffer, {
+        caption,
+        parse_mode: 'HTML',
         reply_markup: getBackKeyboard(),
-      }
-    );
+      });
+    } catch {
+      await bot.editMessageText(caption, {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: getBackKeyboard(),
+      });
+    }
+    return;
   }
 
   // ─── Premium Key Menu ──────────────────────────────────────
@@ -408,11 +422,43 @@ async function handleCallback(bot, query) {
 
     text += `_Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။_`;
 
+    const allKeys = [];
+    if (trialInfo && trialInfo.keys) allKeys.push(...trialInfo.keys);
+    allKeys.push(...premiumKeys);
+    const qrButtons = allKeys.map((k, i) => ({ text: `📱 QR #${i + 1}`, callback_data: `qr_key_${i}` }));
+    const buttons = [];
+    if (qrButtons.length > 0) buttons.push(qrButtons.slice(0, 3));
+    buttons.push([{ text: '« Back to Menu', callback_data: 'back_to_menu' }]);
+
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
       parse_mode: 'Markdown',
-      reply_markup: getBackKeyboard(),
+      reply_markup: { inline_keyboard: buttons },
     });
+  }
+
+  // ─── QR Code for Key ──────────────────────────────────────
+  if (data.startsWith('qr_key_')) {
+    const idx = parseInt(data.replace('qr_key_', ''));
+    const trialInfo2 = getTrialInfo(userId);
+    const premiumKeys2 = getUserPremiumKeys(userId);
+    const allKeys2 = [];
+    if (trialInfo2 && trialInfo2.keys) allKeys2.push(...trialInfo2.keys);
+    allKeys2.push(...premiumKeys2);
+    const key = allKeys2[idx];
+    if (!key) {
+      return bot.answerCallbackQuery(query.id, { text: 'Key not found' });
+    }
+    try {
+      const qrBuffer = await QRCode.toBuffer(key.link, { width: 300, margin: 2 });
+      await bot.sendPhoto(chatId, qrBuffer, {
+        caption: `📱 <b>QR Code</b>\n\n<code>${key.link.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</code>`,
+        parse_mode: 'HTML',
+      });
+    } catch {
+      bot.sendMessage(chatId, '❌ QR Code generate မရပါ');
+    }
+    return;
   }
 
   // ─── My Account ────────────────────────────────────────────

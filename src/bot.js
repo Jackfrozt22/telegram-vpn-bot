@@ -5,7 +5,7 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
@@ -425,6 +425,8 @@ bot.onText(/\/id/, async (msg) => {
 bot.onText(/\/cancel/, (msg) => {
   clearBroadcast(msg.from.id);
   clearAdminState(msg.from.id);
+  clearCustomMsg(msg.from.id);
+  clearKeyDelete(msg.from.id);
   adminOrderState.delete(String(msg.from.id));
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
@@ -539,7 +541,7 @@ bot.on('callback_query', async (query) => {
   }
 
   // Force join check for non-admin callbacks
-  if (!query.data.startsWith('xui_') && !query.data.startsWith('admin_') && !query.data.startsWith('admsrv')) {
+  if (!query.data.startsWith('xui_') && !query.data.startsWith('admin_') && !query.data.startsWith('admsrv') && !query.data.startsWith('confirm_delete_')) {
     if (!await enforceJoinCallback(query)) return;
   }
 
@@ -549,7 +551,7 @@ bot.on('callback_query', async (query) => {
   }
 
   // Check if it's an admin callback
-  if (query.data.startsWith('admin_') || query.data.startsWith('admsrv') || query.data.startsWith('extend_days_') || query.data.startsWith('extend_gb_')) {
+  if (query.data.startsWith('admin_') || query.data.startsWith('admsrv') || query.data.startsWith('extend_days_') || query.data.startsWith('extend_gb_') || query.data.startsWith('confirm_delete_')) {
     return handleAdminCallback(bot, query);
   }
 
@@ -695,6 +697,59 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // Custom message setting
+  if (isSettingCustomMsg(msg.from.id)) {
+    clearCustomMsg(msg.from.id);
+    const { updateTrialConfig } = require('./vpn/trialManager');
+    const text = msg.text.trim();
+    if (text.toLowerCase() === 'clear') {
+      updateTrialConfig({ customMessage: '' });
+      await bot.sendMessage(msg.chat.id, '✅ Custom message ဖျက်ပြီးပါပြီ!');
+    } else {
+      updateTrialConfig({ customMessage: text });
+      await bot.sendMessage(msg.chat.id, `✅ Custom message သတ်မှတ်ပြီးပါပြီ!\n\n"${text}"`);
+    }
+    return;
+  }
+
+  // Key delete
+  if (isDeletingKey(msg.from.id)) {
+    clearKeyDelete(msg.from.id);
+    const email = msg.text.trim();
+    const xuiClient = require('./vpn/xuiClient');
+    try {
+      const clients = await xuiClient.getAllClients();
+      const client = clients.find(c => c.email === email);
+      if (!client) {
+        await bot.sendMessage(msg.chat.id, `❌ Client <code>${email}</code> not found.`, { parse_mode: 'HTML' });
+        return;
+      }
+      const usedGB = ((client.up + client.down) / 1024 / 1024 / 1024).toFixed(2);
+      const totalGB = client.total > 0 ? (client.total / 1024 / 1024 / 1024).toFixed(0) : '∞';
+      await bot.sendMessage(msg.chat.id,
+        `🗑 <b>Delete Confirm</b>\n\n` +
+        `<b>Email:</b> <code>${email}</code>\n` +
+        `<b>Data:</b> ${usedGB}/${totalGB} GB\n` +
+        `<b>Inbound:</b> ${client.inboundRemark}\n\n` +
+        `ဖျက်မှာ သေချာလား?`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ ဖျက်မယ်', callback_data: `confirm_delete_${email}` },
+                { text: '❌ Cancel', callback_data: 'admin_menu' },
+              ],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      await bot.sendMessage(msg.chat.id, `❌ Error: ${err.message}`);
+    }
+    return;
+  }
+
   // Broadcast takes priority
   if (isBroadcasting(msg.from.id)) {
     clearBroadcast(msg.from.id);
@@ -741,7 +796,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
     'Menu ကို အသုံးပြုပါ:',

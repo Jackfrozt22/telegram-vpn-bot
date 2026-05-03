@@ -19,6 +19,9 @@ function getAdminMenuKeyboard() {
       ],
       [
         { text: '🔑 Key Extend', callback_data: 'admin_key_extend' },
+        { text: '🗑 Key Delete', callback_data: 'admin_key_delete' },
+      ],
+      [
         { text: '📊 Daily Stats', callback_data: 'admin_daily_stats' },
       ],
       [{ text: '« Main Menu', callback_data: 'back_to_menu' }],
