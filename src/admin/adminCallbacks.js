@@ -648,6 +648,12 @@ async function handleAdminCallback(bot, query) {
         reply_markup: {
           inline_keyboard: [
             [
+              { text: '5 GB', callback_data: 'admin_trial_gb_5' },
+              { text: '10 GB', callback_data: 'admin_trial_gb_10' },
+              { text: '20 GB', callback_data: 'admin_trial_gb_20' },
+              { text: '30 GB', callback_data: 'admin_trial_gb_30' },
+            ],
+            [
               { text: '50 GB', callback_data: 'admin_trial_gb_50' },
               { text: '100 GB', callback_data: 'admin_trial_gb_100' },
               { text: '150 GB', callback_data: 'admin_trial_gb_150' },
@@ -657,7 +663,24 @@ async function handleAdminCallback(bot, query) {
               { text: '250 GB', callback_data: 'admin_trial_gb_250' },
               { text: '500 GB', callback_data: 'admin_trial_gb_500' },
             ],
+            [{ text: '✏️ ကိုယ်တိုင်ရိုက်ထည့်မယ်', callback_data: 'admin_trial_gb_custom' }],
             [{ text: '« Back', callback_data: 'admin_trial_control' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_trial_gb_custom') {
+    broadcastState[`trialgb_${userId}`] = true;
+    return bot.editMessageText(
+      `📦 *Custom GB*\n\nGB ပမာဏ ရိုက်ထည့်ပါ (ဥပမာ: 5, 10, 75):`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Cancel', callback_data: 'admin_trial_set_gb' }],
           ],
         },
       }
@@ -1046,4 +1069,12 @@ function clearKeyDelete(userId) {
   delete broadcastState[`keydelete_${String(userId)}`];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete };
+function isSettingTrialGB(userId) {
+  return broadcastState[`trialgb_${String(userId)}`] === true;
+}
+
+function clearTrialGB(userId) {
+  delete broadcastState[`trialgb_${String(userId)}`];
+}
+
+module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB };

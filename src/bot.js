@@ -5,7 +5,7 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
@@ -427,6 +427,7 @@ bot.onText(/\/cancel/, (msg) => {
   clearAdminState(msg.from.id);
   clearCustomMsg(msg.from.id);
   clearKeyDelete(msg.from.id);
+  clearTrialGB(msg.from.id);
   adminOrderState.delete(String(msg.from.id));
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
@@ -697,6 +698,20 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // Custom trial GB input
+  if (isSettingTrialGB(msg.from.id)) {
+    clearTrialGB(msg.from.id);
+    const gb = parseInt(msg.text.trim());
+    if (isNaN(gb) || gb < 1 || gb > 10000) {
+      await bot.sendMessage(msg.chat.id, '❌ 1 - 10000 GB ကြားထဲ ရိုက်ထည့်ပါ။');
+      return;
+    }
+    const { updateTrialConfig } = require('./vpn/trialManager');
+    updateTrialConfig({ totalGB: gb });
+    await bot.sendMessage(msg.chat.id, `✅ Trial Data *${gb} GB* သို့ ပြောင်းပြီးပါပြီ!`, { parse_mode: 'Markdown' });
+    return;
+  }
+
   // Custom message setting
   if (isSettingCustomMsg(msg.from.id)) {
     clearCustomMsg(msg.from.id);
@@ -796,7 +811,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || getAdminState(msg.from.id))) return;
 
   bot.sendMessage(msg.chat.id,
     'Menu ကို အသုံးပြုပါ:',
