@@ -117,7 +117,8 @@ async function createTrialKey(userId, username) {
     }
 
     const safeName = (username || 'user').replace(/[^a-zA-Z0-9_]/g, '').substring(0, 8);
-    const email = `t_${safeName}_${userId}`;
+    const suffix = Math.random().toString(36).substring(2, 6);
+    const email = `t_${safeName}_${userId}_${suffix}`;
 
     const inboundSettings = JSON.parse(inbound.settings);
     const clientConfig = xuiClient.createClientConfig(email, {
