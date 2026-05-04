@@ -26,7 +26,12 @@ function getAdminMenuKeyboard() {
         { text: '⭐ Ratings', callback_data: 'admin_ratings' },
       ],
       [
-        { text: '🔧 Maintenance Mode', callback_data: 'admin_maintenance' },
+        { text: '💰 Credit Manage', callback_data: 'admin_credit_manage' },
+        { text: '🎟 Coupon Manage', callback_data: 'admin_coupon_manage' },
+      ],
+      [
+        { text: '💾 Backup', callback_data: 'admin_backup' },
+        { text: '🔧 Maintenance', callback_data: 'admin_maintenance' },
       ],
       [{ text: '« Main Menu', callback_data: 'back_to_menu' }],
     ],

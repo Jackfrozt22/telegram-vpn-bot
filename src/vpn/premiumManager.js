@@ -232,6 +232,19 @@ function getUserPremiumKeys(userId) {
   return premData.keys[String(userId)] || [];
 }
 
+function savePremiumKey(userId, keyData) {
+  const premData = loadPremiumKeys();
+  const id = String(userId);
+  if (!premData.keys[id]) {
+    premData.keys[id] = [];
+  }
+  premData.keys[id].push({
+    ...keyData,
+    createdAt: new Date().toISOString(),
+  });
+  savePremiumKeys(premData);
+}
+
 module.exports = {
   getPlans,
   getPlan,
@@ -244,4 +257,5 @@ module.exports = {
   approveOrder,
   rejectOrder,
   getUserPremiumKeys,
+  savePremiumKey,
 };

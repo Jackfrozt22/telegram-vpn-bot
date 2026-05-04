@@ -8,10 +8,13 @@ const {
   getUserActionsKeyboard,
   getAdminBackKeyboard,
 } = require('./adminKeyboards');
+const { addCredits, getBalance, getUserCredits, getCreditSettings, updateCreditSettings, createCoupon, getAllCoupons, deleteCoupon } = require('../vpn/creditManager');
+const { createBackup, listBackups, restoreBackup, deleteBackup, getBackupZipBuffer } = require('../middleware/backup');
 
 const fs = require('fs');
 const path = require('path');
 const SERVERS_FILE = path.join(__dirname, '../../data/servers.json');
+const BLACKLIST_FILE = path.join(__dirname, '../../data/blacklist.json');
 const MAINTENANCE_FILE = path.join(__dirname, '../../data/maintenance.json');
 
 // Maintenance mode
@@ -979,6 +982,242 @@ async function handleAdminCallback(bot, query) {
     );
   }
 
+  // ─── Admin Credit Management ────────────────────────────────
+  if (data === 'admin_credit_manage') {
+    const settings = getCreditSettings();
+    return bot.editMessageText(
+      `💰 <b>Credit Management</b>\n\n` +
+      `<b>Current Settings:</b>\n` +
+      `👥 Referral Credit: <b>${settings.referralCredit}</b> per invite\n` +
+      `📊 Credit/GB Rate: <b>${settings.creditPerGB}</b> Credit = 1 GB\n` +
+      `🌐 Referral Key Inbound: <b>${settings.referralKeyInboundId || 'Default'}</b>\n\n` +
+      `<b>Premium Plans:</b>\n` +
+      settings.premiumPlans.map(p => `• ${p.name}: ${p.dataGB}GB/${p.days}d — ${p.credits} Credit`).join('\n'),
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💰 User Credit ထည့်ပေးမယ်', callback_data: 'admin_add_credit' }],
+            [{ text: '📊 Referral Credit ပြင်', callback_data: 'admin_set_ref_credit' }],
+            [{ text: '📊 Credit/GB Rate ပြင်', callback_data: 'admin_set_credit_rate' }],
+            [{ text: '🌐 Key Inbound ပြင်', callback_data: 'admin_set_credit_inbound' }],
+            [{ text: '💎 Premium Plan ပြင်', callback_data: 'admin_set_premium_plans' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_add_credit') {
+    broadcastState[`addcredit_${userId}`] = true;
+    return bot.editMessageText(
+      `💰 <b>Add Credit to User</b>\n\n` +
+      `User ID ရိုက်ထည့်ပါ:\n` +
+      `Format: <code>USER_ID AMOUNT</code>\n\n` +
+      `Example: <code>5171954086 10</code>\n(User 5171954086 ကို 10 Credit ထည့်ပေးမယ်)`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_credit_manage' }]],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_set_ref_credit') {
+    broadcastState[`setrefcredit_${userId}`] = true;
+    const settings = getCreditSettings();
+    return bot.editMessageText(
+      `📊 <b>Set Referral Credit</b>\n\n` +
+      `Current: <b>${settings.referralCredit}</b> Credit per invite\n\n` +
+      `Credit amount ရိုက်ထည့်ပါ (ဥပမာ: 0.5):`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_credit_manage' }]],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_set_credit_rate') {
+    broadcastState[`setcreditrate_${userId}`] = true;
+    const settings = getCreditSettings();
+    return bot.editMessageText(
+      `📊 <b>Set Credit/GB Rate</b>\n\n` +
+      `Current: <b>${settings.creditPerGB}</b> Credit = 1 GB\n\n` +
+      `Rate ရိုက်ထည့်ပါ (ဥပမာ: 0.1):`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_credit_manage' }]],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_set_credit_inbound') {
+    broadcastState[`setcreditinbound_${userId}`] = true;
+    const settings = getCreditSettings();
+    return bot.editMessageText(
+      `🌐 <b>Set Credit Key Inbound ID</b>\n\n` +
+      `Current: <b>${settings.referralKeyInboundId || 'Default (Trial Inbound)'}</b>\n\n` +
+      `Inbound ID ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_credit_manage' }]],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_set_premium_plans') {
+    broadcastState[`setpremplan_${userId}`] = true;
+    const settings = getCreditSettings();
+    let current = settings.premiumPlans.map(p => `${p.name}:${p.dataGB}GB:${p.days}d:${p.credits}cr:${p.ipLimit}ip`).join('\n');
+    return bot.editMessageText(
+      `💎 <b>Set Premium Plans</b>\n\n` +
+      `<b>Current Plans:</b>\n<code>${current}</code>\n\n` +
+      `Plan format (line per plan):\n<code>name:dataGB:days:credits:ipLimit</code>\n\n` +
+      `Example:\n<code>100 GB:100:30:10:1\n250 GB:250:30:25:2\n500 GB:500:30:50:3</code>`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_credit_manage' }]],
+        },
+      }
+    );
+  }
+
+  // ─── Admin Coupon Management ──────────────────────────────
+  if (data === 'admin_coupon_manage') {
+    const coupons = getAllCoupons();
+    let text = `🎟 <b>Coupon Management</b>\n\n`;
+    if (coupons.length === 0) {
+      text += `<i>Coupon မရှိသေးပါ</i>`;
+    } else {
+      for (const c of coupons.slice(-10)) {
+        const status = c.active ? '🟢' : '🔴';
+        text += `${status} <code>${c.code}</code> — ${c.credits} Credit | Used: ${c.usedBy.length}/${c.maxUses}\n`;
+      }
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '➕ Coupon အသစ် ဆောက်မယ်', callback_data: 'admin_create_coupon' }],
+          [{ text: '🗑 Coupon ဖျက်မယ်', callback_data: 'admin_delete_coupon' }],
+          [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+        ],
+      },
+    });
+  }
+
+  if (data === 'admin_create_coupon') {
+    broadcastState[`createcoupon_${userId}`] = true;
+    return bot.editMessageText(
+      `➕ <b>Create Coupon</b>\n\n` +
+      `Format: <code>CODE CREDITS MAX_USES</code>\n\n` +
+      `Example: <code>NEWYEAR 5 100</code>\n(Code: NEWYEAR, 5 Credit, 100 times သုံးလို့ရ)`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_coupon_manage' }]],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_delete_coupon') {
+    broadcastState[`deletecoupon_${userId}`] = true;
+    return bot.editMessageText(
+      `🗑 <b>Delete Coupon</b>\n\nCoupon code ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[{ text: '« Cancel', callback_data: 'admin_coupon_manage' }]],
+        },
+      }
+    );
+  }
+
+  // ─── Admin Backup ─────────────────────────────────────────
+  if (data === 'admin_backup') {
+    const backups = listBackups();
+    let text = `💾 <b>Backup System</b>\n\n`;
+    if (backups.length === 0) {
+      text += '<i>Backup မရှိသေးပါ</i>';
+    } else {
+      text += `<b>Recent Backups:</b>\n`;
+      for (const b of backups.slice(0, 5)) {
+        text += `📁 <code>${b.name}</code> — ${b.files} files\n`;
+      }
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '💾 Backup ဆောက်မယ်', callback_data: 'admin_create_backup' }],
+          [{ text: '📥 Backup Download', callback_data: 'admin_download_backup' }],
+          [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+        ],
+      },
+    });
+  }
+
+  if (data === 'admin_create_backup') {
+    const result = createBackup();
+    return bot.editMessageText(
+      `✅ <b>Backup ဆောက်ပြီးပါပြီ!</b>\n\n` +
+      `📁 <code>${result.name}</code>\n📊 Files: ${result.files}`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '💾 Backup Menu', callback_data: 'admin_backup' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_download_backup') {
+    const backups = listBackups();
+    if (backups.length === 0) {
+      return bot.editMessageText('❌ Backup မရှိပါ', {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+    const latest = backups[0];
+    const buffer = getBackupZipBuffer(latest.name);
+    if (buffer) {
+      await bot.sendDocument(chatId, buffer, {
+        caption: `💾 Backup: ${latest.name}`,
+      }, {
+        filename: `${latest.name}.tar.gz`,
+        contentType: 'application/gzip',
+      });
+    } else {
+      bot.sendMessage(chatId, '❌ Backup download failed');
+    }
+    return;
+  }
+
   // ─── Key Extend: Prompt for email ─────────────────────────
   if (data === 'admin_key_extend') {
     broadcastState[`extend_${userId}`] = true;
@@ -1228,4 +1467,36 @@ function clearMaintMsg(userId) {
   delete broadcastState[`maintmsg_${String(userId)}`];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus };
+function isAddingCredit(userId) { return broadcastState[`addcredit_${String(userId)}`] === true; }
+function clearAddCredit(userId) { delete broadcastState[`addcredit_${String(userId)}`]; }
+function isSettingRefCredit(userId) { return broadcastState[`setrefcredit_${String(userId)}`] === true; }
+function clearRefCredit(userId) { delete broadcastState[`setrefcredit_${String(userId)}`]; }
+function isSettingCreditRate(userId) { return broadcastState[`setcreditrate_${String(userId)}`] === true; }
+function clearCreditRate(userId) { delete broadcastState[`setcreditrate_${String(userId)}`]; }
+function isSettingCreditInbound(userId) { return broadcastState[`setcreditinbound_${String(userId)}`] === true; }
+function clearCreditInbound(userId) { delete broadcastState[`setcreditinbound_${String(userId)}`]; }
+function isSettingPremPlan(userId) { return broadcastState[`setpremplan_${String(userId)}`] === true; }
+function clearPremPlan(userId) { delete broadcastState[`setpremplan_${String(userId)}`]; }
+function isCreatingCoupon(userId) { return broadcastState[`createcoupon_${String(userId)}`] === true; }
+function clearCreateCoupon(userId) { delete broadcastState[`createcoupon_${String(userId)}`]; }
+function isDeletingCoupon(userId) { return broadcastState[`deletecoupon_${String(userId)}`] === true; }
+function clearDeleteCoupon(userId) { delete broadcastState[`deletecoupon_${String(userId)}`]; }
+
+module.exports = {
+  handleAdminCallback,
+  isBroadcasting, clearBroadcast,
+  isResettingTrial, clearTrialReset,
+  isExtendingKey, clearKeyExtend,
+  isSettingCustomMsg, clearCustomMsg,
+  isDeletingKey, clearKeyDelete,
+  isSettingTrialGB, clearTrialGB,
+  isSettingMaintMsg, clearMaintMsg,
+  isMaintenanceMode, getMaintenanceStatus,
+  isAddingCredit, clearAddCredit,
+  isSettingRefCredit, clearRefCredit,
+  isSettingCreditRate, clearCreditRate,
+  isSettingCreditInbound, clearCreditInbound,
+  isSettingPremPlan, clearPremPlan,
+  isCreatingCoupon, clearCreateCoupon,
+  isDeletingCoupon, clearDeleteCoupon,
+};

@@ -5,11 +5,11 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus, isAddingCredit, clearAddCredit, isSettingRefCredit, clearRefCredit, isSettingCreditRate, clearCreditRate, isSettingCreditInbound, clearCreditInbound, isSettingPremPlan, clearPremPlan, isCreatingCoupon, clearCreateCoupon, isDeletingCoupon, clearDeleteCoupon } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
-const { logUserAction, isRatingFeedback, clearRatingFeedback } = require('./middleware/userLogger');
+const { logUserAction, isRatingFeedback, clearRatingFeedback, isCouponRedeem, clearCouponRedeem } = require('./middleware/userLogger');
 const { startUsageAlertScheduler } = require('./middleware/usageAlert');
 const { startDailyStatsScheduler } = require('./middleware/dailyStats');
 const { startKeyCleanupScheduler } = require('./middleware/keyCleanup');
@@ -434,6 +434,13 @@ bot.onText(/\/cancel/, (msg) => {
   clearKeyDelete(msg.from.id);
   clearTrialGB(msg.from.id);
   clearMaintMsg(msg.from.id);
+  clearAddCredit(msg.from.id);
+  clearRefCredit(msg.from.id);
+  clearCreditRate(msg.from.id);
+  clearCreditInbound(msg.from.id);
+  clearPremPlan(msg.from.id);
+  clearCreateCoupon(msg.from.id);
+  clearDeleteCoupon(msg.from.id);
   adminOrderState.delete(String(msg.from.id));
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
@@ -723,6 +730,138 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // Admin add credit to user
+  if (isAddingCredit(msg.from.id)) {
+    clearAddCredit(msg.from.id);
+    const parts = msg.text.trim().split(/\s+/);
+    if (parts.length < 2) {
+      await bot.sendMessage(msg.chat.id, '❌ Format: USER_ID AMOUNT');
+      return;
+    }
+    const targetId = parts[0];
+    const amount = parseFloat(parts[1]);
+    if (isNaN(amount) || amount <= 0) {
+      await bot.sendMessage(msg.chat.id, '❌ Amount မှန်ကန်ပါ (ဥပမာ: 10)');
+      return;
+    }
+    const { addCredits, getBalance } = require('./vpn/creditManager');
+    addCredits(targetId, amount, 'Admin added');
+    const newBalance = getBalance(targetId);
+    await bot.sendMessage(msg.chat.id, `✅ User ${targetId} ကို ${amount} Credit ထည့်ပြီးပါပြီ!\n💰 New Balance: ${newBalance}`);
+    // Notify user
+    try {
+      await bot.sendMessage(targetId, `💰 Admin က သင့်ကို ${amount} Credit ထည့်ပေးပါပြီ!\n💰 Balance: ${newBalance}`);
+    } catch {}
+    return;
+  }
+
+  // Set referral credit amount
+  if (isSettingRefCredit(msg.from.id)) {
+    clearRefCredit(msg.from.id);
+    const val = parseFloat(msg.text.trim());
+    if (isNaN(val) || val <= 0) {
+      await bot.sendMessage(msg.chat.id, '❌ Number ရိုက်ထည့်ပါ (ဥပမာ: 0.5)');
+      return;
+    }
+    const { updateCreditSettings } = require('./vpn/creditManager');
+    updateCreditSettings({ referralCredit: val });
+    await bot.sendMessage(msg.chat.id, `✅ Referral Credit: ${val} per invite`);
+    return;
+  }
+
+  // Set credit/GB rate
+  if (isSettingCreditRate(msg.from.id)) {
+    clearCreditRate(msg.from.id);
+    const val = parseFloat(msg.text.trim());
+    if (isNaN(val) || val <= 0) {
+      await bot.sendMessage(msg.chat.id, '❌ Number ရိုက်ထည့်ပါ (ဥပမာ: 0.1)');
+      return;
+    }
+    const { updateCreditSettings } = require('./vpn/creditManager');
+    updateCreditSettings({ creditPerGB: val });
+    await bot.sendMessage(msg.chat.id, `✅ Credit/GB Rate: ${val} Credit = 1 GB`);
+    return;
+  }
+
+  // Set credit key inbound
+  if (isSettingCreditInbound(msg.from.id)) {
+    clearCreditInbound(msg.from.id);
+    const val = parseInt(msg.text.trim());
+    if (isNaN(val) || val < 1) {
+      await bot.sendMessage(msg.chat.id, '❌ Inbound ID ရိုက်ထည့်ပါ');
+      return;
+    }
+    const { updateCreditSettings } = require('./vpn/creditManager');
+    updateCreditSettings({ referralKeyInboundId: val });
+    await bot.sendMessage(msg.chat.id, `✅ Credit Key Inbound ID: ${val}`);
+    return;
+  }
+
+  // Set premium plans
+  if (isSettingPremPlan(msg.from.id)) {
+    clearPremPlan(msg.from.id);
+    const lines = msg.text.trim().split('\n');
+    const plans = [];
+    for (const line of lines) {
+      const parts = line.split(':');
+      if (parts.length < 5) continue;
+      plans.push({
+        id: `cp_${parts[1].trim()}`,
+        name: parts[0].trim(),
+        dataGB: parseInt(parts[1]),
+        days: parseInt(parts[2]),
+        credits: parseFloat(parts[3]),
+        ipLimit: parseInt(parts[4]),
+      });
+    }
+    if (plans.length === 0) {
+      await bot.sendMessage(msg.chat.id, '❌ Format: name:dataGB:days:credits:ipLimit\nExample: 100 GB:100:30:10:1');
+      return;
+    }
+    const { updateCreditSettings } = require('./vpn/creditManager');
+    updateCreditSettings({ premiumPlans: plans });
+    await bot.sendMessage(msg.chat.id, `✅ Premium Plans (${plans.length}) updated!`);
+    return;
+  }
+
+  // Create coupon
+  if (isCreatingCoupon(msg.from.id)) {
+    clearCreateCoupon(msg.from.id);
+    const parts = msg.text.trim().split(/\s+/);
+    if (parts.length < 3) {
+      await bot.sendMessage(msg.chat.id, '❌ Format: CODE CREDITS MAX_USES');
+      return;
+    }
+    const code = parts[0];
+    const credits = parseFloat(parts[1]);
+    const maxUses = parseInt(parts[2]);
+    if (isNaN(credits) || isNaN(maxUses)) {
+      await bot.sendMessage(msg.chat.id, '❌ Credits နဲ့ Max Uses numbers ဖြစ်ရမယ်');
+      return;
+    }
+    const { createCoupon } = require('./vpn/creditManager');
+    const coupon = createCoupon(code, credits, maxUses);
+    if (!coupon) {
+      await bot.sendMessage(msg.chat.id, '❌ Coupon code ရှိပြီးသားပါ');
+      return;
+    }
+    await bot.sendMessage(msg.chat.id, `✅ Coupon ဆောက်ပြီး!\n🎟 Code: ${coupon.code}\n💰 Credits: ${coupon.credits}\n👥 Max Uses: ${coupon.maxUses}`);
+    return;
+  }
+
+  // Delete coupon
+  if (isDeletingCoupon(msg.from.id)) {
+    clearDeleteCoupon(msg.from.id);
+    const { deleteCoupon } = require('./vpn/creditManager');
+    const result = deleteCoupon(msg.text.trim());
+    if (result) {
+      await bot.sendMessage(msg.chat.id, `✅ Coupon "${msg.text.trim()}" ဖျက်ပြီး!`);
+    } else {
+      await bot.sendMessage(msg.chat.id, `❌ Coupon "${msg.text.trim()}" မတွေ့ပါ`);
+    }
+    return;
+  }
+
   // Custom trial GB input
   if (isSettingTrialGB(msg.from.id)) {
     clearTrialGB(msg.from.id);
@@ -836,7 +975,26 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || isAddingCredit(msg.from.id) || isSettingRefCredit(msg.from.id) || isSettingCreditRate(msg.from.id) || isSettingCreditInbound(msg.from.id) || isSettingPremPlan(msg.from.id) || isCreatingCoupon(msg.from.id) || isDeletingCoupon(msg.from.id) || getAdminState(msg.from.id))) return;
+
+  // Coupon redeem handler
+  if (isCouponRedeem(msg.from.id)) {
+    clearCouponRedeem(msg.from.id);
+    const { redeemCoupon } = require('./vpn/creditManager');
+    const result = redeemCoupon(msg.from.id, msg.text.trim());
+    if (result.success) {
+      const { getBalance } = require('./vpn/creditManager');
+      const balance = getBalance(msg.from.id);
+      await bot.sendMessage(msg.chat.id,
+        `✅ Coupon ရရှိပါပြီ!\n💰 +${result.credits} Credit\n💰 Balance: ${balance}`,
+        { reply_markup: getMainMenuKeyboard() }
+      );
+      logUserAction(bot, msg.from, '🎟 Coupon Redeemed', `Code: ${msg.text.trim()} | +${result.credits} Credit`);
+    } else {
+      await bot.sendMessage(msg.chat.id, `❌ ${result.msg}`, { reply_markup: getMainMenuKeyboard() });
+    }
+    return;
+  }
 
   // Rating feedback handler
   if (isRatingFeedback(msg.from.id)) {

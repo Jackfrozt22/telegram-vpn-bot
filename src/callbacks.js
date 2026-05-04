@@ -1,10 +1,12 @@
 const { getMainMenuKeyboard, getBackKeyboard } = require('./keyboards');
 const { hasUsedTrial, createTrialKey, getTrialConfig, getTrialInfo } = require('./vpn/trialManager');
 const { getPlans, createOrder, getUserPremiumKeys } = require('./vpn/premiumManager');
-const { getUserReferral, getReferralCode, canClaimBonus, claimReferralBonus, getReferralConfig } = require('./vpn/referralManager');
+const { getUserReferral, getReferralCode, getReferralConfig } = require('./vpn/referralManager');
+const { getBalance, getUserCredits, deductCredits, getCreditSettings, redeemCoupon } = require('./vpn/creditManager');
 const xuiClient = require('./vpn/xuiClient');
 const { getUser } = require('./admin/userManager');
 const { logUserAction, logKeyClaimWithQR } = require('./middleware/userLogger');
+const { getUserLang, setUserLang } = require('./middleware/language');
 const QRCode = require('qrcode');
 
 async function handleCallback(bot, query) {
@@ -135,16 +137,18 @@ async function handleCallback(bot, query) {
     return;
   }
 
-  // ─── Premium Key Menu ──────────────────────────────────────
+  // ─── Premium Key Menu (Credit System) ──────────────────────
   if (data === 'premium_menu') {
-    const plans = getPlans();
-    let text = `💎 *Premium Key*\n\n` +
-      `Premium plan ရွေးချယ်ပါ:\n\n`;
+    const settings = getCreditSettings();
+    const balance = getBalance(userId);
+    let text = `💎 <b>Premium Key (Credit System)</b>\n\n` +
+      `💰 <b>Your Balance:</b> ${balance} Credit\n\n` +
+      `Plan ရွေးပြီး Credit နဲ့ ဝယ်ယူပါ:\n\n`;
 
-    const buttons = plans.map((p) => [
+    const buttons = settings.premiumPlans.map((p) => [
       {
-        text: `${p.name} — ${p.dataGB}GB | ${p.days}Days | ${p.price} Ks`,
-        callback_data: `premium_select_${p.id}`,
+        text: `${p.name} | ${p.days}d | ${p.credits} Credit`,
+        callback_data: `premium_credit_${p.id}`,
       },
     ]);
     buttons.push([{ text: '📋 My Orders', callback_data: 'premium_orders' }]);
@@ -152,12 +156,159 @@ async function handleCallback(bot, query) {
 
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: { inline_keyboard: buttons },
     });
   }
 
-  // ─── Premium Plan Select ──────────────────────────────────
+  // ─── Premium Buy with Credit ──────────────────────────────
+  if (data.startsWith('premium_credit_')) {
+    const planId = data.replace('premium_credit_', '');
+    const settings = getCreditSettings();
+    const plan = settings.premiumPlans.find(p => p.id === planId);
+    if (!plan) {
+      return bot.editMessageText('❌ Plan မတွေ့ပါ', {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+    const balance = getBalance(userId);
+
+    return bot.editMessageText(
+      `💎 <b>${plan.name}</b>\n\n` +
+      `📦 Data: <b>${plan.dataGB} GB</b>\n` +
+      `📅 Duration: <b>${plan.days} Days</b>\n` +
+      `📱 Devices: <b>${plan.ipLimit}</b>\n` +
+      `💰 Price: <b>${plan.credits} Credit</b>\n\n` +
+      `💰 Your Balance: <b>${balance} Credit</b>\n\n` +
+      (balance >= plan.credits
+        ? `✅ Credit လုံလောက်ပါတယ်။ ဝယ်မယ် နှိပ်ပါ။`
+        : `❌ Credit မလုံလောက်ပါ။ ${plan.credits - balance} Credit ထပ်လိုပါတယ်။`),
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: balance >= plan.credits
+            ? [
+                [{ text: '💰 Credit နဲ့ ဝယ်မယ်', callback_data: `premium_buy_credit_${planId}` }],
+                [{ text: '« Plans', callback_data: 'premium_menu' }],
+              ]
+            : [
+                [{ text: '💰 Credit ထပ်ဝယ်မယ်', callback_data: 'credit_menu' }],
+                [{ text: '« Plans', callback_data: 'premium_menu' }],
+              ],
+        },
+      }
+    );
+  }
+
+  if (data.startsWith('premium_buy_credit_')) {
+    const planId = data.replace('premium_buy_credit_', '');
+    const settings = getCreditSettings();
+    const plan = settings.premiumPlans.find(p => p.id === planId);
+    if (!plan) {
+      return bot.editMessageText('❌ Plan မတွေ့ပါ', {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+
+    const result = deductCredits(userId, plan.credits, `Premium: ${plan.name}`);
+    if (!result) {
+      return bot.editMessageText('❌ Credit မလုံလောက်ပါ', {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+
+    bot.editMessageText('⏳ Premium key ထုတ်ပေးနေပါတယ်...', {
+      chat_id: chatId, message_id: messageId,
+    });
+
+    try {
+      const inboundId = settings.referralKeyInboundId || parseInt(process.env.TRIAL_INBOUND_ID) || 1;
+      const inbound = await xuiClient.getInbound(inboundId);
+      if (!inbound) {
+        return bot.editMessageText('❌ Inbound not found', {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getBackKeyboard(),
+        });
+      }
+
+      const inboundSettings = JSON.parse(inbound.settings);
+      const email = `premium_${userId}_${Date.now()}`;
+      const clientConfig = xuiClient.createClientConfig(email, {
+        expiryDays: plan.days,
+        totalGB: plan.dataGB * 1024 * 1024 * 1024,
+        limitIp: plan.ipLimit,
+        tgId: String(userId),
+        protocol: inbound.protocol,
+        method: inboundSettings.method || 'aes-256-gcm',
+      });
+
+      const res = await xuiClient.addClient(inboundId, clientConfig);
+      if (!res.success) {
+        return bot.editMessageText(`❌ ${res.msg || 'Failed to create key'}`, {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getBackKeyboard(),
+        });
+      }
+
+      const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';
+      const link = xuiClient.generateLink(inbound, clientConfig, serverHost);
+
+      const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const expiryDate = new Date(Date.now() + plan.days * 86400000).toLocaleDateString('en-GB');
+
+      logKeyClaimWithQR(bot, query.from, {
+        email,
+        dataGB: plan.dataGB,
+        expiryDate,
+        ipLimit: plan.ipLimit,
+        link,
+        inbound: inbound.remark || '',
+      }, 'Premium (Credit)');
+
+      // Save to premium keys
+      const { savePremiumKey } = require('./vpn/premiumManager');
+      if (typeof savePremiumKey === 'function') {
+        savePremiumKey(userId, { email, link, planId: plan.id, planName: plan.name, dataGB: plan.dataGB, days: plan.days });
+      }
+
+      const caption =
+        `💎 <b>Premium Key ရရှိပါပြီ!</b>\n\n` +
+        `📦 Plan: <b>${plan.name}</b>\n` +
+        `📅 Expiry: <b>${expiryDate}</b>\n` +
+        `📦 Data: <b>${plan.dataGB} GB</b>\n` +
+        `📱 Device: <b>${plan.ipLimit}</b>\n` +
+        `💰 Used: <b>${plan.credits} Credit</b>\n\n` +
+        `🔗 <b>Config Link:</b>\n<code>${escHtml(link)}</code>`;
+
+      try {
+        const qrBuffer = await QRCode.toBuffer(link, { width: 300, margin: 2 });
+        await bot.deleteMessage(chatId, messageId).catch(() => {});
+        await bot.sendPhoto(chatId, qrBuffer, {
+          caption,
+          parse_mode: 'HTML',
+          reply_markup: getBackKeyboard(),
+        });
+      } catch {
+        await bot.editMessageText(caption, {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: getBackKeyboard(),
+        });
+      }
+    } catch (err) {
+      return bot.editMessageText(`❌ ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+    return;
+  }
+
+  // ─── Premium Plan Select (old payment flow, still available) ──
   if (data.startsWith('premium_select_')) {
     const planId = data.replace('premium_select_', '');
     const plans = getPlans();
@@ -190,7 +341,6 @@ async function handleCallback(bot, query) {
     );
   }
 
-  // ─── Premium Buy (Create Order) ───────────────────────────
   if (data.startsWith('premium_buy_')) {
     const planId = data.replace('premium_buy_', '');
     const order = createOrder(userId, planId);
@@ -271,79 +421,311 @@ async function handleCallback(bot, query) {
     });
   }
 
-  // ─── Referral Menu ────────────────────────────────────────
-  if (data === 'referral_menu') {
+  // ─── Credit Menu ──────────────────────────────────────────
+  if (data === 'credit_menu') {
+    const balance = getBalance(userId);
+    const settings = getCreditSettings();
     const ref = getUserReferral(userId);
-    const config = getReferralConfig();
-    const botUsername = (await bot.getMe()).username;
-    const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
-    const inviteCount = ref.invitedUsers.length;
-    const nextMilestone = (ref.bonusClaimed + 1) * config.requiredInvites;
-    const remaining = Math.max(0, nextMilestone - inviteCount);
 
-    let text =
-      `👥 *Referral System*\n\n` +
-      `သူငယ်ချင်း *${config.requiredInvites} ယောက်* invite လုပ်ရင်\n` +
-      `🎁 Free *${config.bonusGB} GB* key ရမယ်!\n\n` +
-      `📊 *Invite Count:* ${inviteCount} ယောက်\n` +
-      `🎯 *Next Bonus:* ${remaining} ယောက် ထပ်လို\n` +
-      `🏆 *Bonus Claimed:* ${ref.bonusClaimed} ကြိမ်\n\n` +
-      `🔗 *Your Referral Link:*\n\`${refLink}\`\n\n` +
-      `_Link ကို share ပြီး သူငယ်ချင်းတွေကို invite လုပ်ပါ!_`;
-
-    const buttons = [];
-    if (canClaimBonus(userId)) {
-      buttons.push([{ text: '🎁 Bonus Key ယူမယ်', callback_data: 'referral_claim' }]);
-    }
-    buttons.push([{ text: '« Back', callback_data: 'back_to_menu' }]);
-
-    return bot.editMessageText(text, {
-      chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
-      reply_markup: { inline_keyboard: buttons },
-    });
+    return bot.editMessageText(
+      `💰 <b>Credit System</b>\n\n` +
+      `💰 <b>Balance:</b> ${balance} Credit\n` +
+      `👥 <b>Referral Earned:</b> ${ref.totalCreditsEarned || 0} Credit\n\n` +
+      `<b>Credit ရနည်း:</b>\n` +
+      `• 👥 Referral invite 1 ယောက် = ${settings.referralCredit} Credit\n` +
+      `• 🎟 Coupon Code သုံးပြီး ရယူ\n` +
+      `• Admin ဆီက Credit ဝယ်ယူ\n\n` +
+      `<b>Credit သုံးနည်း:</b>\n` +
+      `• 🔄 Credit နဲ့ Key လဲ (${settings.creditPerGB} Credit = 1 GB)\n` +
+      `• 💎 Credit နဲ့ Premium Plan ဝယ်`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔄 Credit → Key လဲမယ်', callback_data: 'credit_exchange' }],
+            [{ text: '💎 Premium ဝယ်မယ်', callback_data: 'premium_menu' }],
+            [{ text: '📜 Credit History', callback_data: 'credit_history' }],
+            [{ text: '« Back', callback_data: 'back_to_menu' }],
+          ],
+        },
+      }
+    );
   }
 
-  // ─── Referral Claim ───────────────────────────────────────
-  if (data === 'referral_claim') {
-    if (!canClaimBonus(userId)) {
+  // ─── Credit Exchange (Credit → Key) ──────────────────────
+  if (data === 'credit_exchange') {
+    const balance = getBalance(userId);
+    const settings = getCreditSettings();
+    const rate = settings.creditPerGB || 0.1;
+
+    const options = [5, 10, 20, 50, 100];
+    const buttons = options.map(gb => {
+      const cost = parseFloat((gb * rate).toFixed(2));
+      return [{ text: `${gb} GB — ${cost} Credit`, callback_data: `credit_buy_${gb}` }];
+    });
+    buttons.push([{ text: '« Back', callback_data: 'credit_menu' }]);
+
+    return bot.editMessageText(
+      `🔄 <b>Credit → Key Exchange</b>\n\n` +
+      `💰 <b>Balance:</b> ${balance} Credit\n` +
+      `📊 <b>Rate:</b> ${rate} Credit = 1 GB\n\n` +
+      `Key ထုတ်ယူချင်တဲ့ GB ရွေးပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: { inline_keyboard: buttons },
+      }
+    );
+  }
+
+  if (data.startsWith('credit_buy_')) {
+    const gb = parseInt(data.replace('credit_buy_', ''));
+    const settings = getCreditSettings();
+    const rate = settings.creditPerGB || 0.1;
+    const cost = parseFloat((gb * rate).toFixed(2));
+    const balance = getBalance(userId);
+
+    if (balance < cost) {
       return bot.editMessageText(
-        '❌ Invite လုံလောက်မှု မရှိသေးပါ။',
+        `❌ Credit မလုံလောက်ပါ\n\n💰 Balance: ${balance}\n💰 Required: ${cost}`,
         {
           chat_id: chatId, message_id: messageId,
-          parse_mode: 'Markdown',
-          reply_markup: getBackKeyboard(),
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '« Back', callback_data: 'credit_exchange' }],
+            ],
+          },
         }
       );
     }
 
-    bot.editMessageText('⏳ Bonus key ထုတ်ပေးနေပါတယ်...', {
-      chat_id: chatId, message_id: messageId,
-    });
-
-    const result = await claimReferralBonus(userId);
-
-    if (!result.success) {
-      return bot.editMessageText(`❌ ${result.msg}`, {
+    const result = deductCredits(userId, cost, `Key Exchange: ${gb}GB`);
+    if (!result) {
+      return bot.editMessageText('❌ Credit deduct failed', {
         chat_id: chatId, message_id: messageId,
         reply_markup: getBackKeyboard(),
       });
     }
 
-    logUserAction(bot, query.from, '🎁 Referral Bonus Claimed',
-      `📦 Data: ${result.bonusGB} GB\n` +
-      `🔗 Email: \`${result.email}\``
-    );
+    bot.editMessageText('⏳ Key ထုတ်ပေးနေပါတယ်...', {
+      chat_id: chatId, message_id: messageId,
+    });
 
+    try {
+      const inboundId = settings.referralKeyInboundId || parseInt(process.env.TRIAL_INBOUND_ID) || 1;
+      const inbound = await xuiClient.getInbound(inboundId);
+      if (!inbound) {
+        return bot.editMessageText('❌ Inbound not found', {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getBackKeyboard(),
+        });
+      }
+
+      const inboundSettings = JSON.parse(inbound.settings);
+      const email = `credit_${userId}_${Date.now()}`;
+      const clientConfig = xuiClient.createClientConfig(email, {
+        expiryDays: 30,
+        totalGB: gb * 1024 * 1024 * 1024,
+        limitIp: 1,
+        tgId: String(userId),
+        protocol: inbound.protocol,
+        method: inboundSettings.method || 'aes-256-gcm',
+      });
+
+      const res = await xuiClient.addClient(inboundId, clientConfig);
+      if (!res.success) {
+        return bot.editMessageText(`❌ ${res.msg || 'Failed'}`, {
+          chat_id: chatId, message_id: messageId,
+          reply_markup: getBackKeyboard(),
+        });
+      }
+
+      const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';
+      const link = xuiClient.generateLink(inbound, clientConfig, serverHost);
+      const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const expiryDate = new Date(Date.now() + 30 * 86400000).toLocaleDateString('en-GB');
+
+      logKeyClaimWithQR(bot, query.from, {
+        email, dataGB: gb, expiryDate, ipLimit: 1, link, inbound: inbound.remark || '',
+      }, 'Credit Exchange');
+
+      const caption =
+        `🔄 <b>Credit Exchange Key ရရှိပါပြီ!</b>\n\n` +
+        `📦 Data: <b>${gb} GB</b>\n` +
+        `📅 Expiry: <b>${expiryDate}</b>\n` +
+        `💰 Used: <b>${cost} Credit</b>\n` +
+        `💰 Remaining: <b>${result.balance} Credit</b>\n\n` +
+        `🔗 <b>Config Link:</b>\n<code>${escHtml(link)}</code>`;
+
+      try {
+        const qrBuffer = await QRCode.toBuffer(link, { width: 300, margin: 2 });
+        await bot.deleteMessage(chatId, messageId).catch(() => {});
+        await bot.sendPhoto(chatId, qrBuffer, {
+          caption, parse_mode: 'HTML', reply_markup: getBackKeyboard(),
+        });
+      } catch {
+        await bot.editMessageText(caption, {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML', reply_markup: getBackKeyboard(),
+        });
+      }
+    } catch (err) {
+      return bot.editMessageText(`❌ ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+    return;
+  }
+
+  // ─── Credit History ───────────────────────────────────────
+  if (data === 'credit_history') {
+    const credits = getUserCredits(userId);
+    let text = `📜 <b>Credit History</b>\n\n💰 Balance: <b>${credits.balance}</b>\n\n`;
+    const history = (credits.history || []).slice(-10).reverse();
+    if (history.length === 0) {
+      text += '<i>History မရှိသေးပါ</i>';
+    } else {
+      for (const h of history) {
+        const icon = h.type === 'add' ? '➕' : '➖';
+        const date = new Date(h.date).toLocaleDateString('en-GB');
+        text += `${icon} ${h.amount} Credit — ${h.reason || 'N/A'} (${date})\n`;
+      }
+    }
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [[{ text: '« Credit Menu', callback_data: 'credit_menu' }]],
+      },
+    });
+  }
+
+  // ─── Coupon Menu ──────────────────────────────────────────
+  if (data === 'coupon_menu') {
+    const { setCouponRedeemState } = require('./middleware/userLogger');
+    setCouponRedeemState(userId);
     return bot.editMessageText(
-      `🎁 *Referral Bonus ရရှိပါပြီ!*\n\n` +
-      `📦 Data: *${result.bonusGB} GB*\n` +
-      `📅 Duration: *30 Days*\n\n` +
-      `🔗 *Config Link:*\n\`${result.link}\`\n\n` +
-      `_Link ကို copy ပြီး VPN app ထဲ import လုပ်ပါ။_`,
+      `🎟 <b>Coupon Code</b>\n\n` +
+      `Coupon code ရှိရင် ထည့်ပြီး Credit ရယူပါ!\n\n` +
+      `Coupon code ကို ရိုက်ထည့်ပါ:`,
       {
         chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Back', callback_data: 'back_to_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  // ─── Referral Menu (Credit System) ────────────────────────
+  if (data === 'referral_menu') {
+    const ref = getUserReferral(userId);
+    const config = getReferralConfig();
+    const balance = getBalance(userId);
+    const botUsername = (await bot.getMe()).username;
+    const refLink = `https://t.me/${botUsername}?start=ref_${userId}`;
+    const inviteCount = ref.invitedUsers.length;
+
+    let text =
+      `👥 <b>Referral System (Credit)</b>\n\n` +
+      `သူငယ်ချင်း <b>1 ယောက်</b> invite လုပ်ရင်\n` +
+      `💰 <b>${config.referralCredit} Credit</b> ရမယ်!\n\n` +
+      `📊 <b>Invite Count:</b> ${inviteCount} ယောက်\n` +
+      `💰 <b>Total Earned:</b> ${ref.totalCreditsEarned || 0} Credit\n` +
+      `💰 <b>Balance:</b> ${balance} Credit\n\n` +
+      `🔗 <b>Your Referral Link:</b>\n<code>${refLink}</code>\n\n` +
+      `<i>Link ကို share ပြီး သူငယ်ချင်းတွေကို invite လုပ်ပါ!</i>`;
+
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '💰 Credit Menu', callback_data: 'credit_menu' }],
+          [{ text: '« Back', callback_data: 'back_to_menu' }],
+        ],
+      },
+    });
+  }
+
+  // ─── Speed Test ───────────────────────────────────────────
+  if (data === 'speed_test') {
+    bot.editMessageText('🚀 Speed Test စစ်ဆေးနေပါတယ်...', {
+      chat_id: chatId, message_id: messageId,
+    });
+
+    try {
+      const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';
+      const startTime = Date.now();
+      const axios = require('axios');
+      await axios.get(`http://${serverHost}:53253`, { timeout: 5000 }).catch(() => {});
+      const ping = Date.now() - startTime;
+
+      const status = ping < 200 ? '🟢 Excellent' : ping < 500 ? '🟡 Good' : '🔴 Slow';
+
+      return bot.editMessageText(
+        `🚀 <b>Speed Test Result</b>\n\n` +
+        `🌐 <b>Server:</b> ${serverHost}\n` +
+        `📡 <b>Ping:</b> ${ping}ms\n` +
+        `📊 <b>Status:</b> ${status}\n\n` +
+        `<i>Ping = Bot server ကနေ VPN server ဆီ response time</i>`,
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '🔄 Retry', callback_data: 'speed_test' }],
+              [{ text: '« Back', callback_data: 'back_to_menu' }],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Speed test failed: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getBackKeyboard(),
+      });
+    }
+  }
+
+  // ─── Language Menu ────────────────────────────────────────
+  if (data === 'language_menu') {
+    const lang = getUserLang(userId);
+    return bot.editMessageText(
+      `🌐 <b>Language / ဘာသာစကား</b>\n\n` +
+      `Current: <b>${lang === 'mm' ? 'Myanmar 🇲🇲' : 'English 🇺🇸'}</b>\n\n` +
+      `ပြောင်းချင်တဲ့ ဘာသာစကား ရွေးပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🇲🇲 Myanmar', callback_data: 'lang_mm' },
+              { text: '🇺🇸 English', callback_data: 'lang_en' },
+            ],
+            [{ text: '« Back', callback_data: 'back_to_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'lang_mm' || data === 'lang_en') {
+    const lang = data.replace('lang_', '');
+    setUserLang(userId, lang);
+    const name = lang === 'mm' ? 'Myanmar 🇲🇲' : 'English 🇺🇸';
+    return bot.editMessageText(
+      `✅ Language changed to <b>${name}</b>`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
         reply_markup: getBackKeyboard(),
       }
     );
@@ -381,7 +763,6 @@ async function handleCallback(bot, query) {
       clients = await xuiClient.getAllClients();
     } catch {}
 
-    // Trial keys
     if (trialInfo && trialInfo.keys.length > 0) {
       text += '🎁 *Trial Key:*\n';
       for (const key of trialInfo.keys) {
@@ -395,15 +776,12 @@ async function handleCallback(bot, query) {
           const now = Date.now();
           const isExpired = client.expiryTime > 0 && client.expiryTime < now;
           const status = !client.enable ? '🔴 Disabled' : isExpired ? '🔴 Expired' : '🟢 Active';
-
-          text +=
-            `  ${status} | 📊 ${usedGB}/${totalGB} GB | 📅 ${expiry}\n`;
+          text += `  ${status} | 📊 ${usedGB}/${totalGB} GB | 📅 ${expiry}\n`;
         }
         text += `  🔗 \`${key.link}\`\n\n`;
       }
     }
 
-    // Premium keys
     if (premiumKeys.length > 0) {
       text += '💎 *Premium Keys:*\n';
       for (const key of premiumKeys) {
@@ -417,9 +795,7 @@ async function handleCallback(bot, query) {
           const now = Date.now();
           const isExpired = client.expiryTime > 0 && client.expiryTime < now;
           const status = !client.enable ? '🔴 Disabled' : isExpired ? '🔴 Expired' : '🟢 Active';
-
-          text +=
-            `  ${status} | ${key.planName} | 📊 ${usedGB}/${totalGB} GB | 📅 ${expiry}\n`;
+          text += `  ${status} | ${key.planName || 'Premium'} | 📊 ${usedGB}/${totalGB} GB | 📅 ${expiry}\n`;
         }
         text += `  🔗 \`${key.link}\`\n\n`;
       }
@@ -473,6 +849,7 @@ async function handleCallback(bot, query) {
     const hasTrial = trialInfo && trialInfo.count > 0;
     const premiumKeys = getUserPremiumKeys(userId);
     const ref = getUserReferral(userId);
+    const balance = getBalance(userId);
 
     const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const userName = escHtml(query.from.first_name || 'User');
@@ -485,20 +862,15 @@ async function handleCallback(bot, query) {
       `<b>ID:</b> <code>${userId}</code>\n` +
       `<b>Joined:</b> ${user ? new Date(user.joinedAt).toLocaleDateString('en-GB') : 'N/A'}\n\n`;
 
-    // Trial status
     if (hasTrial) {
       text += `🎁 <b>Trial Key:</b> ယူပြီး (${trialInfo.count}/${getTrialConfig().maxTrials})\n`;
     } else {
       text += `🎁 <b>Trial Key:</b> မယူရသေးပါ\n`;
     }
-
-    // Premium keys count
     text += `💎 <b>Premium Keys:</b> ${premiumKeys.length} ခု\n`;
-
-    // Referral info
     text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n`;
+    text += `💰 <b>Credit Balance:</b> ${balance}\n`;
 
-    // Live usage for latest key
     const allKeys = [];
     if (trialInfo && trialInfo.keys) allKeys.push(...trialInfo.keys);
     allKeys.push(...premiumKeys);
@@ -637,6 +1009,7 @@ async function handleCallback(bot, query) {
       `*ဆက်သွယ်နိုင်တဲ့ အကြောင်းအရာများ:*\n` +
       `• Key သက်တမ်းတိုးခြင်း\n` +
       `• Premium key ဝယ်ယူခြင်း\n` +
+      `• Credit ဝယ်ယူခြင်း\n` +
       `• ချိတ်ဆက်မှု ပြဿနာများ\n` +
       `• အခြား အကူအညီများ`;
 

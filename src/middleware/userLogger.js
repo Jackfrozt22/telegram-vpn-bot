@@ -72,6 +72,12 @@ function clearRatingFeedback(userId) {
   delete feedbackState[String(userId)];
 }
 
+// Coupon redeem state
+const couponState = {};
+function setCouponRedeemState(userId) { couponState[String(userId)] = true; }
+function isCouponRedeem(userId) { return couponState[String(userId)] === true; }
+function clearCouponRedeem(userId) { delete couponState[String(userId)]; }
+
 async function logKeyClaimWithQR(bot, user, keyData, keyType = 'Trial') {
   if (!LOG_CHANNEL) return;
 
@@ -128,5 +134,8 @@ module.exports = {
   setRatingFeedbackState,
   isRatingFeedback,
   clearRatingFeedback,
+  setCouponRedeemState,
+  isCouponRedeem,
+  clearCouponRedeem,
   logKeyClaimWithQR,
 };

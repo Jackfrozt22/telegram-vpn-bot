@@ -10,8 +10,16 @@ function getMainMenuKeyboard() {
         { text: '👥 Referral', callback_data: 'referral_menu' },
       ],
       [
+        { text: '💰 Credit', callback_data: 'credit_menu' },
+        { text: '🎟 Coupon', callback_data: 'coupon_menu' },
+      ],
+      [
         { text: '👤 My Account', callback_data: 'my_account' },
         { text: '⭐ Rating', callback_data: 'rating_menu' },
+      ],
+      [
+        { text: '🚀 Speed Test', callback_data: 'speed_test' },
+        { text: '🌐 Language', callback_data: 'language_menu' },
       ],
       [
         { text: '📞 Admin ဆက်သွယ်ရန်', callback_data: 'contact_admin' },
