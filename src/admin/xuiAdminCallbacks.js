@@ -305,13 +305,50 @@ async function handleXuiCallback(bot, query) {
     );
   }
 
-  // ─── Delete Inbound ────────────────────────────────────────
+  // ─── Delete Inbound (confirm) ─────────────────────────────
   if (data.startsWith('xui_delib_')) {
     const inboundId = parseInt(data.replace('xui_delib_', ''));
     try {
+      const inbound = await xuiClient.getInbound(inboundId);
+      if (!inbound) throw new Error('Inbound not found');
+      const settings = JSON.parse(inbound.settings);
+      const clientCount = (settings.clients || []).length;
+
+      return bot.editMessageText(
+        `🗑 <b>Inbound ဖျက်မယ်</b>\n\n` +
+        `<b>Name:</b> ${inbound.remark}\n` +
+        `<b>Protocol:</b> ${inbound.protocol}\n` +
+        `<b>Port:</b> ${inbound.port}\n` +
+        `<b>Clients:</b> ${clientCount}\n\n` +
+        `⚠️ Client ${clientCount} ခုလုံး ပါဖျက်မှာပါ။ သေချာလား?`,
+        {
+          chat_id: chatId, message_id: messageId,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: '✅ ဖျက်မယ်', callback_data: `xui_confirmdelib_${inboundId}` },
+                { text: '❌ Cancel', callback_data: `xui_ib_${inboundId}` },
+              ],
+            ],
+          },
+        }
+      );
+    } catch (err) {
+      return bot.editMessageText(`❌ Error: ${err.message}`, {
+        chat_id: chatId, message_id: messageId,
+        reply_markup: getXuiBackKeyboard(),
+      });
+    }
+  }
+
+  // ─── Confirm Delete Inbound ─────────────────────────────────
+  if (data.startsWith('xui_confirmdelib_')) {
+    const inboundId = parseInt(data.replace('xui_confirmdelib_', ''));
+    try {
       const res = await xuiClient.deleteInbound(inboundId);
       if (res.success) {
-        return bot.editMessageText('✅ Inbound deleted.', {
+        return bot.editMessageText('✅ Inbound ဖျက်ပြီးပါပြီ!', {
           chat_id: chatId, message_id: messageId,
           reply_markup: getXuiBackKeyboard(),
         });
