@@ -230,9 +230,10 @@ async function handleCallback(bot, query) {
       const crypto = require('crypto');
       const premServerHost = process.env.PREMIUM_XUI_SERVER_HOST || '209.97.171.125';
 
-      // Generate short remark and random port
-      const shortId = crypto.randomBytes(3).toString('hex');
-      const remark = `p${shortId}`;
+      // Generate remark with username/userId and random port
+      const uname = (query.from.username || '').replace(/[^a-zA-Z0-9_]/g, '').substring(0, 8);
+      const remarkName = uname ? `${uname}_${userId}` : `${userId}`;
+      const remark = remarkName;
       const randomPort = 10000 + Math.floor(Math.random() * 55000);
       const ssMethod = 'chacha20-ietf-poly1305';
       const ssPassword = crypto.randomBytes(16).toString('base64');
@@ -250,6 +251,7 @@ async function handleCallback(bot, query) {
       }
 
       const newInboundId = inboundRes.obj.id;
+      const shortId = crypto.randomBytes(2).toString('hex');
       const email = `p_${shortId}`;
       const clientConfig = premiumClient.createClientConfig(email, {
         expiryDays: plan.days,
