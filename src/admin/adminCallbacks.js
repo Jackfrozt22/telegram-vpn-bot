@@ -12,6 +12,25 @@ const {
 const fs = require('fs');
 const path = require('path');
 const SERVERS_FILE = path.join(__dirname, '../../data/servers.json');
+const MAINTENANCE_FILE = path.join(__dirname, '../../data/maintenance.json');
+
+// Maintenance mode
+function getMaintenanceStatus() {
+  try {
+    const data = JSON.parse(fs.readFileSync(MAINTENANCE_FILE, 'utf8'));
+    return data;
+  } catch {
+    return { enabled: false, message: '' };
+  }
+}
+
+function setMaintenanceStatus(enabled, message = '') {
+  fs.writeFileSync(MAINTENANCE_FILE, JSON.stringify({ enabled, message, updatedAt: new Date().toISOString() }, null, 2));
+}
+
+function isMaintenanceMode() {
+  return getMaintenanceStatus().enabled;
+}
 
 // Track broadcast state per admin
 const broadcastState = {};
@@ -879,6 +898,87 @@ async function handleAdminCallback(bot, query) {
     });
   }
 
+  // ─── Maintenance Mode ──────────────────────────────────────
+  if (data === 'admin_maintenance') {
+    const status = getMaintenanceStatus();
+    const statusText = status.enabled ? '🔴 ဖွင့်ထား' : '🟢 ပိတ်ထား';
+    const msgText = status.message ? `\n<b>Message:</b> "${status.message}"` : '';
+
+    return bot.editMessageText(
+      `🔧 <b>Maintenance Mode</b>\n\n` +
+      `<b>Status:</b> ${statusText}${msgText}\n\n` +
+      `ဖွင့်ရင် user တွေ bot ကို သုံးလို့မရတော့ဘူး။\nAdmin တွေကတော့ ပုံမှန်အတိုင်း သုံးလို့ရပါတယ်။`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            status.enabled
+              ? [{ text: '🟢 Maintenance ပိတ်မယ်', callback_data: 'admin_maint_off' }]
+              : [{ text: '🔴 Maintenance ဖွင့်မယ်', callback_data: 'admin_maint_on' }],
+            [{ text: '✏️ Message ပြင်', callback_data: 'admin_maint_setmsg' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_maint_on') {
+    const status = getMaintenanceStatus();
+    setMaintenanceStatus(true, status.message || '🔧 Bot ကို ပြင်ဆင်နေပါတယ်။ ခဏစောင့်ပေးပါ။');
+    return bot.editMessageText(
+      `🔴 <b>Maintenance Mode ဖွင့်ပြီးပါပြီ!</b>\n\nUser တွေ bot ကို သုံးလို့မရတော့ပါ။`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔧 Maintenance Settings', callback_data: 'admin_maintenance' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_maint_off') {
+    const status = getMaintenanceStatus();
+    setMaintenanceStatus(false, status.message);
+    return bot.editMessageText(
+      `🟢 <b>Maintenance Mode ပိတ်ပြီးပါပြီ!</b>\n\nUser တွေ bot ကို ပုံမှန်အတိုင်း သုံးလို့ရပါပြီ။`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '🔧 Maintenance Settings', callback_data: 'admin_maintenance' }],
+            [{ text: '« Admin Menu', callback_data: 'admin_menu' }],
+          ],
+        },
+      }
+    );
+  }
+
+  if (data === 'admin_maint_setmsg') {
+    broadcastState[`maintmsg_${userId}`] = true;
+    const status = getMaintenanceStatus();
+    return bot.editMessageText(
+      `✏️ <b>Maintenance Message ပြင်</b>\n\n` +
+      `<b>Current:</b> ${status.message || '<i>မသတ်မှတ်ရသေး</i>'}\n\n` +
+      `User တွေကို ပြမယ့် message ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Cancel', callback_data: 'admin_maintenance' }],
+          ],
+        },
+      }
+    );
+  }
+
   // ─── Key Extend: Prompt for email ─────────────────────────
   if (data === 'admin_key_extend') {
     broadcastState[`extend_${userId}`] = true;
@@ -1120,4 +1220,12 @@ function clearTrialGB(userId) {
   delete broadcastState[`trialgb_${String(userId)}`];
 }
 
-module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB };
+function isSettingMaintMsg(userId) {
+  return broadcastState[`maintmsg_${String(userId)}`] === true;
+}
+
+function clearMaintMsg(userId) {
+  delete broadcastState[`maintmsg_${String(userId)}`];
+}
+
+module.exports = { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus };

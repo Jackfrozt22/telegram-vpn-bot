@@ -25,6 +25,9 @@ function getAdminMenuKeyboard() {
         { text: '📊 Daily Stats', callback_data: 'admin_daily_stats' },
         { text: '⭐ Ratings', callback_data: 'admin_ratings' },
       ],
+      [
+        { text: '🔧 Maintenance Mode', callback_data: 'admin_maintenance' },
+      ],
       [{ text: '« Main Menu', callback_data: 'back_to_menu' }],
     ],
   };

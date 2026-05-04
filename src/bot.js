@@ -5,7 +5,7 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
@@ -252,6 +252,11 @@ bot.onText(/\/trialreset (\d+)/, async (msg, match) => {
 // ─── User Commands ───────────────────────────────────────────
 bot.onText(/\/start(.*)/, async (msg, match) => {
   if (isBanned(msg.from.id)) return;
+  // Maintenance mode check (admin bypass)
+  if (isMaintenanceMode() && !isAdmin(msg.from.id)) {
+    const mStatus = getMaintenanceStatus();
+    return bot.sendMessage(msg.chat.id, mStatus.message || '🔧 Bot ကို ပြင်ဆင်နေပါတယ်။ ခဏစောင့်ပေးပါ။');
+  }
   if (!await enforceJoin(msg)) return;
 
   // Handle referral link
@@ -428,6 +433,7 @@ bot.onText(/\/cancel/, (msg) => {
   clearCustomMsg(msg.from.id);
   clearKeyDelete(msg.from.id);
   clearTrialGB(msg.from.id);
+  clearMaintMsg(msg.from.id);
   adminOrderState.delete(String(msg.from.id));
   bot.sendMessage(msg.chat.id, 'Cancelled.', { reply_markup: getMainMenuKeyboard() });
 });
@@ -554,6 +560,15 @@ bot.on('callback_query', async (query) => {
   // Check if it's an admin callback
   if (query.data.startsWith('admin_') || query.data.startsWith('admsrv') || query.data.startsWith('extend_days_') || query.data.startsWith('extend_gb_') || query.data.startsWith('confirm_delete_')) {
     return handleAdminCallback(bot, query);
+  }
+
+  // Maintenance mode check for user callbacks (admin bypass)
+  if (isMaintenanceMode() && !isAdmin(query.from.id)) {
+    const mStatus = getMaintenanceStatus();
+    return bot.answerCallbackQuery(query.id, {
+      text: mStatus.message || '🔧 Bot ကို ပြင်ဆင်နေပါတယ်။',
+      show_alert: true,
+    });
   }
 
   return handleCallback(bot, query);
@@ -698,6 +713,16 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // Maintenance message setting
+  if (isSettingMaintMsg(msg.from.id)) {
+    clearMaintMsg(msg.from.id);
+    const { setMaintenanceStatus, getMaintenanceStatus } = require('./admin/adminCallbacks');
+    const status = getMaintenanceStatus();
+    setMaintenanceStatus(status.enabled, msg.text.trim());
+    await bot.sendMessage(msg.chat.id, `✅ Maintenance message ပြင်ပြီးပါပြီ!\n\n"${msg.text.trim()}"`);
+    return;
+  }
+
   // Custom trial GB input
   if (isSettingTrialGB(msg.from.id)) {
     clearTrialGB(msg.from.id);
@@ -811,7 +836,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || getAdminState(msg.from.id))) return;
 
   // Rating feedback handler
   if (isRatingFeedback(msg.from.id)) {
