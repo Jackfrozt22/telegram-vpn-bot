@@ -985,7 +985,7 @@ bot.on('message', async (msg) => {
 });
 
 // ─── General Message Handler ─────────────────────────────────
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
   if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || isAddingCredit(msg.from.id) || isSettingRefCredit(msg.from.id) || isSettingCreditRate(msg.from.id) || isSettingCreditInbound(msg.from.id) || isSettingPremPlan(msg.from.id) || isCreatingCoupon(msg.from.id) || isDeletingCoupon(msg.from.id) || isBanningWithReason(msg.from.id) || getAdminState(msg.from.id))) return;
