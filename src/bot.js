@@ -5,7 +5,7 @@ const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
 const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
-const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus, isAddingCredit, clearAddCredit, isSettingRefCredit, clearRefCredit, isSettingCreditRate, clearCreditRate, isSettingCreditInbound, clearCreditInbound, isSettingPremPlan, clearPremPlan, isCreatingCoupon, clearCreateCoupon, isDeletingCoupon, clearDeleteCoupon } = require('./admin/adminCallbacks');
+const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus, isAddingCredit, clearAddCredit, isSettingRefCredit, clearRefCredit, isSettingCreditRate, clearCreditRate, isSettingCreditInbound, clearCreditInbound, isSettingPremPlan, clearPremPlan, isCreatingCoupon, clearCreateCoupon, isDeletingCoupon, clearDeleteCoupon, isBanningWithReason, getBanTarget, clearBanReason } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
@@ -730,6 +730,19 @@ bot.on('message', async (msg) => {
     return;
   }
 
+  // Ban with reason
+  if (isBanningWithReason(msg.from.id)) {
+    const targetId = getBanTarget(msg.from.id);
+    clearBanReason(msg.from.id);
+    const { banUser } = require('./admin/userManager');
+    const { addBlacklistEntry } = require('./admin/adminCallbacks');
+    banUser(targetId);
+    const reason = msg.text.trim();
+    addBlacklistEntry(targetId, reason, msg.from.id);
+    await bot.sendMessage(msg.chat.id, `🚫 User ${targetId} banned!\n📝 Reason: ${reason}`);
+    return;
+  }
+
   // Admin add credit to user
   if (isAddingCredit(msg.from.id)) {
     clearAddCredit(msg.from.id);
@@ -975,7 +988,7 @@ bot.on('message', async (msg) => {
 bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
-  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || isAddingCredit(msg.from.id) || isSettingRefCredit(msg.from.id) || isSettingCreditRate(msg.from.id) || isSettingCreditInbound(msg.from.id) || isSettingPremPlan(msg.from.id) || isCreatingCoupon(msg.from.id) || isDeletingCoupon(msg.from.id) || getAdminState(msg.from.id))) return;
+  if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || isSettingMaintMsg(msg.from.id) || isAddingCredit(msg.from.id) || isSettingRefCredit(msg.from.id) || isSettingCreditRate(msg.from.id) || isSettingCreditInbound(msg.from.id) || isSettingPremPlan(msg.from.id) || isCreatingCoupon(msg.from.id) || isDeletingCoupon(msg.from.id) || isBanningWithReason(msg.from.id) || getAdminState(msg.from.id))) return;
 
   // Coupon redeem handler
   if (isCouponRedeem(msg.from.id)) {

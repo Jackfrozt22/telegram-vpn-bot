@@ -205,23 +205,43 @@ async function handleAdminCallback(bot, query) {
     });
   }
 
-  // ─── Ban / Unban ───────────────────────────────────────────
-  if (data.startsWith('admin_ban_')) {
-    const targetId = data.replace('admin_ban_', '');
+  // ─── Ban / Unban (with Blacklist) ────────────────────────────
+  if (data.startsWith('admin_ban_noreason_')) {
+    const targetId = data.replace('admin_ban_noreason_', '');
     banUser(targetId);
-    return bot.editMessageText(`🚫 User \`${targetId}\` has been banned.`, {
+    addBlacklistEntry(targetId, 'No reason provided', userId);
+    delete broadcastState[`banreason_${userId}`];
+    return bot.editMessageText(`🚫 User <code>${targetId}</code> has been banned.`, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getUserActionsKeyboard(targetId),
     });
+  }
+
+  if (data.startsWith('admin_ban_')) {
+    const targetId = data.replace('admin_ban_', '');
+    broadcastState[`banreason_${userId}`] = targetId;
+    return bot.editMessageText(
+      `🚫 <b>Ban User ${targetId}</b>\n\nBan reason ရိုက်ထည့်ပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '⚡ Reason မထည့်ဘဲ Ban', callback_data: `admin_ban_noreason_${targetId}` }],
+            [{ text: '« Cancel', callback_data: `admin_userinfo_${targetId}` }],
+          ],
+        },
+      }
+    );
   }
 
   if (data.startsWith('admin_unban_')) {
     const targetId = data.replace('admin_unban_', '');
     unbanUser(targetId);
-    return bot.editMessageText(`✅ User \`${targetId}\` has been unbanned.`, {
+    return bot.editMessageText(`✅ User <code>${targetId}</code> has been unbanned.`, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: getUserActionsKeyboard(targetId),
     });
   }
@@ -231,22 +251,25 @@ async function handleAdminCallback(bot, query) {
     const banned = getBannedUsers();
 
     if (banned.length === 0) {
-      return bot.editMessageText('🚫 *Banned Users*\n\nNo banned users.', {
+      return bot.editMessageText('🚫 <b>Banned Users</b>\n\nNo banned users.', {
         chat_id: chatId, message_id: messageId,
-        parse_mode: 'Markdown',
+        parse_mode: 'HTML',
         reply_markup: getAdminBackKeyboard(),
       });
     }
 
-    let text = `🚫 *Banned Users* (${banned.length})\n\n`;
+    let text = `🚫 <b>Banned Users</b> (${banned.length})\n\n`;
     const buttons = [];
+    const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
     banned.forEach((id) => {
       const user = getUser(id);
-      const name = user ? (user.username ? `@${user.username}` : user.firstName) : id;
-      text += `• ${name} (\`${id}\`)\n`;
+      const name = user ? (user.username ? `@${escHtml(user.username)}` : escHtml(user.firstName)) : id;
+      const bl = getBlacklistEntry(id);
+      const reason = bl && bl.bans.length > 0 ? bl.bans[bl.bans.length - 1].reason : 'N/A';
+      text += `• ${name} (<code>${id}</code>)\n  📝 ${escHtml(reason)}\n`;
       buttons.push([
-        { text: `✅ Unban ${name}`, callback_data: `admin_unban_${id}` },
+        { text: `✅ Unban ${user ? (user.username || user.firstName) : id}`, callback_data: `admin_unban_${id}` },
       ]);
     });
 
@@ -254,7 +277,7 @@ async function handleAdminCallback(bot, query) {
 
     return bot.editMessageText(text, {
       chat_id: chatId, message_id: messageId,
-      parse_mode: 'Markdown',
+      parse_mode: 'HTML',
       reply_markup: { inline_keyboard: buttons },
     });
   }
@@ -1467,6 +1490,32 @@ function clearMaintMsg(userId) {
   delete broadcastState[`maintmsg_${String(userId)}`];
 }
 
+// Blacklist functions
+function loadBlacklist() {
+  if (!fs.existsSync(BLACKLIST_FILE)) {
+    fs.writeFileSync(BLACKLIST_FILE, JSON.stringify({ entries: {} }, null, 2));
+  }
+  return JSON.parse(fs.readFileSync(BLACKLIST_FILE, 'utf8'));
+}
+function saveBlacklist(data) {
+  fs.writeFileSync(BLACKLIST_FILE, JSON.stringify(data, null, 2));
+}
+function addBlacklistEntry(targetId, reason, adminId) {
+  const data = loadBlacklist();
+  const id = String(targetId);
+  if (!data.entries[id]) data.entries[id] = { bans: [] };
+  data.entries[id].bans.push({ reason, adminId: String(adminId), date: new Date().toISOString() });
+  saveBlacklist(data);
+}
+function getBlacklistEntry(targetId) {
+  const data = loadBlacklist();
+  return data.entries[String(targetId)] || null;
+}
+
+function isBanningWithReason(userId) { return !!broadcastState[`banreason_${String(userId)}`]; }
+function getBanTarget(userId) { return broadcastState[`banreason_${String(userId)}`]; }
+function clearBanReason(userId) { delete broadcastState[`banreason_${String(userId)}`]; }
+
 function isAddingCredit(userId) { return broadcastState[`addcredit_${String(userId)}`] === true; }
 function clearAddCredit(userId) { delete broadcastState[`addcredit_${String(userId)}`]; }
 function isSettingRefCredit(userId) { return broadcastState[`setrefcredit_${String(userId)}`] === true; }
@@ -1499,4 +1548,6 @@ module.exports = {
   isSettingPremPlan, clearPremPlan,
   isCreatingCoupon, clearCreateCoupon,
   isDeletingCoupon, clearDeleteCoupon,
+  isBanningWithReason, getBanTarget, clearBanReason,
+  getBlacklistEntry, addBlacklistEntry,
 };
