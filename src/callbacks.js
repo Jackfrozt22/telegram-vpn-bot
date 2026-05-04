@@ -462,7 +462,7 @@ async function handleCallback(bot, query) {
           inline_keyboard: [
             [{ text: '🔄 Credit → Key လဲမယ်', callback_data: 'credit_exchange' }],
             [{ text: '💎 Premium ဝယ်မယ်', callback_data: 'premium_menu' }],
-            [{ text: '💵 Credit ဝယ်ယူရန်', callback_data: 'credit_buy_admin' }],
+            [{ text: '💵 Credit ဝယ်ယူရန်', callback_data: 'credit_purchase' }],
             [{ text: '📜 Credit History', callback_data: 'credit_history' }],
             [{ text: '« Back', callback_data: 'back_to_menu' }],
           ],
@@ -622,7 +622,7 @@ async function handleCallback(bot, query) {
   }
 
   // ─── Credit Buy (Contact Admin) ────────────────────────────
-  if (data === 'credit_buy_admin') {
+  if (data === 'credit_purchase') {
     const adminContact = process.env.ADMIN_CONTACT || 'https://t.me/JackFrozt_2k4';
     const balance = getBalance(userId);
     return bot.editMessageText(
