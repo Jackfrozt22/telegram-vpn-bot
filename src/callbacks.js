@@ -226,36 +226,51 @@ async function handleCallback(bot, query) {
     });
 
     try {
-      const inboundId = settings.referralKeyInboundId || parseInt(process.env.TRIAL_INBOUND_ID) || 1;
-      const inbound = await xuiClient.getInbound(inboundId);
-      if (!inbound) {
-        return bot.editMessageText('❌ Inbound not found', {
+      const { premiumClient } = require('./vpn/xuiClient');
+      const crypto = require('crypto');
+      const premServerHost = process.env.PREMIUM_XUI_SERVER_HOST || '209.97.171.125';
+
+      // Generate short remark and random port
+      const shortId = crypto.randomBytes(3).toString('hex');
+      const remark = `p${shortId}`;
+      const randomPort = 10000 + Math.floor(Math.random() * 55000);
+      const ssMethod = 'chacha20-ietf-poly1305';
+      const ssPassword = crypto.randomBytes(16).toString('base64');
+
+      // Create a new SS inbound on premium panel with random port
+      const inboundRes = await premiumClient.createShadowsocksInbound(remark, randomPort, {
+        method: ssMethod,
+        password: ssPassword,
+      });
+      if (!inboundRes.success) {
+        return bot.editMessageText(`❌ ${inboundRes.msg || 'Failed to create inbound'}`, {
           chat_id: chatId, message_id: messageId,
           reply_markup: getBackKeyboard(),
         });
       }
 
-      const inboundSettings = JSON.parse(inbound.settings);
-      const email = `premium_${userId}_${Date.now()}`;
-      const clientConfig = xuiClient.createClientConfig(email, {
+      const newInboundId = inboundRes.obj.id;
+      const email = `p_${shortId}`;
+      const clientConfig = premiumClient.createClientConfig(email, {
         expiryDays: plan.days,
         totalGB: plan.dataGB * 1024 * 1024 * 1024,
-        limitIp: plan.ipLimit,
+        limitIp: plan.ipLimit || 2,
         tgId: String(userId),
-        protocol: inbound.protocol,
-        method: inboundSettings.method || 'aes-256-gcm',
+        protocol: 'shadowsocks',
+        method: ssMethod,
       });
 
-      const res = await xuiClient.addClient(inboundId, clientConfig);
-      if (!res.success) {
-        return bot.editMessageText(`❌ ${res.msg || 'Failed to create key'}`, {
+      const addRes = await premiumClient.addClient(newInboundId, clientConfig);
+      if (!addRes.success) {
+        return bot.editMessageText(`❌ ${addRes.msg || 'Failed to create key'}`, {
           chat_id: chatId, message_id: messageId,
           reply_markup: getBackKeyboard(),
         });
       }
 
-      const serverHost = process.env.XUI_SERVER_HOST || '178.128.80.123';
-      const link = xuiClient.generateLink(inbound, clientConfig, serverHost);
+      // Get the created inbound for link generation
+      const inbound = await premiumClient.getInbound(newInboundId);
+      const link = premiumClient.generateLink(inbound, clientConfig, premServerHost);
 
       const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       const expiryDate = new Date(Date.now() + plan.days * 86400000).toLocaleDateString('en-GB');
@@ -264,15 +279,15 @@ async function handleCallback(bot, query) {
         email,
         dataGB: plan.dataGB,
         expiryDate,
-        ipLimit: plan.ipLimit,
+        ipLimit: plan.ipLimit || 2,
         link,
-        inbound: inbound.remark || '',
+        inbound: remark,
       }, 'Premium (Credit)');
 
       // Save to premium keys
       const { savePremiumKey } = require('./vpn/premiumManager');
       if (typeof savePremiumKey === 'function') {
-        savePremiumKey(userId, { email, link, planId: plan.id, planName: plan.name, dataGB: plan.dataGB, days: plan.days });
+        savePremiumKey(userId, { email, link, planId: plan.id, planName: plan.name, dataGB: plan.dataGB, days: plan.days, server: premServerHost, inboundId: newInboundId });
       }
 
       const caption =
@@ -280,8 +295,10 @@ async function handleCallback(bot, query) {
         `📦 Plan: <b>${plan.name}</b>\n` +
         `📅 Expiry: <b>${expiryDate}</b>\n` +
         `📦 Data: <b>${plan.dataGB} GB</b>\n` +
-        `📱 Device: <b>${plan.ipLimit}</b>\n` +
-        `💰 Used: <b>${plan.credits} Credit</b>\n\n` +
+        `📱 Device: <b>${plan.ipLimit || 2}</b>\n` +
+        `💰 Used: <b>${plan.credits} Credit</b>\n` +
+        `🔒 Method: <b>${ssMethod}</b>\n` +
+        `🌐 Port: <b>${randomPort}</b>\n\n` +
         `🔗 <b>Config Link:</b>\n<code>${escHtml(link)}</code>`;
 
       try {
@@ -445,6 +462,7 @@ async function handleCallback(bot, query) {
           inline_keyboard: [
             [{ text: '🔄 Credit → Key လဲမယ်', callback_data: 'credit_exchange' }],
             [{ text: '💎 Premium ဝယ်မယ်', callback_data: 'premium_menu' }],
+            [{ text: '💵 Credit ဝယ်ယူရန်', callback_data: 'credit_buy_admin' }],
             [{ text: '📜 Credit History', callback_data: 'credit_history' }],
             [{ text: '« Back', callback_data: 'back_to_menu' }],
           ],
@@ -601,6 +619,28 @@ async function handleCallback(bot, query) {
         inline_keyboard: [[{ text: '« Credit Menu', callback_data: 'credit_menu' }]],
       },
     });
+  }
+
+  // ─── Credit Buy (Contact Admin) ────────────────────────────
+  if (data === 'credit_buy_admin') {
+    const adminContact = process.env.ADMIN_CONTACT || 'https://t.me/JackFrozt_2k4';
+    const balance = getBalance(userId);
+    return bot.editMessageText(
+      `💵 <b>Credit ဝယ်ယူရန်</b>\n\n` +
+      `💰 <b>Current Balance:</b> ${balance} Credit\n\n` +
+      `Credit ဝယ်ယူလိုပါက Admin ထံ ဆက်သွယ်ပါ။\n` +
+      `ငွေလွှဲပြီးရင် Admin က Credit ထည့်ပေးပါမယ်။`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '📞 Admin ထံ ဆက်သွယ်မယ်', url: adminContact }],
+            [{ text: '« Credit Menu', callback_data: 'credit_menu' }],
+          ],
+        },
+      }
+    );
   }
 
   // ─── Coupon Menu ──────────────────────────────────────────
@@ -868,8 +908,15 @@ async function handleCallback(bot, query) {
       text += `🎁 <b>Trial Key:</b> မယူရသေးပါ\n`;
     }
     text += `💎 <b>Premium Keys:</b> ${premiumKeys.length} ခု\n`;
-    text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n`;
-    text += `💰 <b>Credit Balance:</b> ${balance}\n`;
+    text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n\n`;
+
+    const creditInfo = getUserCredits(userId);
+    const settings = getCreditSettings();
+    text += `💰 <b>Credit Info:</b>\n`;
+    text += `   Balance: <b>${balance}</b> Credit\n`;
+    text += `   Referral Earned: ${ref.totalCreditsEarned || 0} Credit\n`;
+    text += `   Total Spent: ${creditInfo.history.filter(h => h.type === 'deduct').reduce((a, h) => a + h.amount, 0).toFixed(2)} Credit\n`;
+    text += `   Rate: ${settings.creditPerGB} Credit = 1 GB\n`;
 
     const allKeys = [];
     if (trialInfo && trialInfo.keys) allKeys.push(...trialInfo.keys);

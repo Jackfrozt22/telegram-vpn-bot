@@ -364,4 +364,21 @@ class XUIClient {
   }
 }
 
-module.exports = new XUIClient();
+// Premium XUI Client (separate panel)
+class PremiumXUIClient extends XUIClient {
+  constructor() {
+    super();
+    this.baseUrl = process.env.PREMIUM_XUI_PANEL_URL || '';
+    this.username = process.env.PREMIUM_XUI_USERNAME || '';
+    this.password = process.env.PREMIUM_XUI_PASSWORD || '';
+    this.cookie = null;
+    this.cookieExpiry = null;
+  }
+}
+
+const defaultClient = new XUIClient();
+const premiumClient = new PremiumXUIClient();
+
+module.exports = defaultClient;
+module.exports.premiumClient = premiumClient;
+module.exports.XUIClient = XUIClient;
