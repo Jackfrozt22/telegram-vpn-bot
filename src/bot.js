@@ -909,9 +909,17 @@ bot.on('message', async (msg) => {
     clearKeyDelete(msg.from.id);
     const email = msg.text.trim();
     const xuiClient = require('./vpn/xuiClient');
+    const { premiumClient } = require('./vpn/xuiClient');
     try {
-      const clients = await xuiClient.getAllClients();
-      const client = clients.find(c => c.email === email);
+      let clients = await xuiClient.getAllClients();
+      let client = clients.find(c => c.email === email);
+      // Also search premium panel
+      if (!client && premiumClient) {
+        try {
+          const premClients = await premiumClient.getAllClients();
+          client = premClients.find(c => c.email === email);
+        } catch (e) { /* ignore */ }
+      }
       if (!client) {
         await bot.sendMessage(msg.chat.id, `❌ Client <code>${email}</code> not found.`, { parse_mode: 'HTML' });
         return;

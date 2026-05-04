@@ -577,9 +577,24 @@ async function handleAdminCallback(bot, query) {
   if (data.startsWith('confirm_delete_')) {
     const email = data.replace('confirm_delete_', '');
     const xuiClient = require('../vpn/xuiClient');
+    const { premiumClient } = require('../vpn/xuiClient');
     try {
+      // Try both panels (trial + premium)
+      let client = null;
+      let targetClient = xuiClient;
       const clients = await xuiClient.getAllClients();
-      const client = clients.find(c => c.email === email);
+      client = clients.find(c => c.email === email);
+
+      if (!client && premiumClient) {
+        try {
+          const premClients = await premiumClient.getAllClients();
+          client = premClients.find(c => c.email === email);
+          if (client) targetClient = premiumClient;
+        } catch (e) {
+          console.error('Premium panel search error:', e.message);
+        }
+      }
+
       if (!client) {
         return bot.editMessageText(`❌ Client <code>${email}</code> not found.`, {
           chat_id: chatId, message_id: messageId,
@@ -588,12 +603,12 @@ async function handleAdminCallback(bot, query) {
         });
       }
 
-      const inbound = await xuiClient.getInbound(client.inboundId);
+      const inbound = await targetClient.getInbound(client.inboundId);
       const settings = JSON.parse(inbound.settings);
       settings.clients = settings.clients.filter(c => c.email !== email);
       const updateData = { ...inbound, settings: JSON.stringify(settings) };
       delete updateData.clientStats;
-      await xuiClient.request('post', `/xui/inbound/update/${client.inboundId}`, updateData);
+      await targetClient.request('post', `/xui/inbound/update/${client.inboundId}`, updateData);
 
       return bot.editMessageText(
         `✅ Client <code>${email}</code> ဖျက်ပြီးပါပြီ!`,
@@ -604,6 +619,7 @@ async function handleAdminCallback(bot, query) {
         }
       );
     } catch (err) {
+      console.error('Key delete error:', err.message);
       return bot.editMessageText(`❌ Error: ${err.message}`, {
         chat_id: chatId, message_id: messageId,
         reply_markup: getAdminBackKeyboard(),
