@@ -4,7 +4,7 @@ const { getPlans, createOrder, getUserPremiumKeys } = require('./vpn/premiumMana
 const { getUserReferral, getReferralCode, canClaimBonus, claimReferralBonus, getReferralConfig } = require('./vpn/referralManager');
 const xuiClient = require('./vpn/xuiClient');
 const { getUser } = require('./admin/userManager');
-const { logUserAction } = require('./middleware/userLogger');
+const { logUserAction, logKeyClaimWithQR } = require('./middleware/userLogger');
 const QRCode = require('qrcode');
 
 async function handleCallback(bot, query) {
@@ -96,9 +96,14 @@ async function handleCallback(bot, query) {
     const config = getTrialConfig();
     const expiryDate = new Date(d.expiryDate).toLocaleDateString('en-GB');
 
-    logUserAction(bot, query.from, '🎁 Trial Key Claimed',
-      `📦 Data: ${d.dataGB} GB | 📅 Expiry: ${expiryDate} | 📱 Device: ${d.ipLimit} | 🔗 ${d.email}`
-    );
+    logKeyClaimWithQR(bot, query.from, {
+      email: d.email,
+      dataGB: d.dataGB,
+      expiryDate,
+      ipLimit: d.ipLimit,
+      link: d.link,
+      inbound: d.inboundRemark || '',
+    }, 'Trial');
 
     const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     const customMsg = config.customMessage ? `\n${escHtml(config.customMessage)}\n` : '';
@@ -532,6 +537,94 @@ async function handleCallback(bot, query) {
       parse_mode: 'HTML',
       reply_markup: getBackKeyboard(),
     });
+  }
+
+  // ─── Rating Menu ──────────────────────────────────────────
+  if (data === 'rating_menu') {
+    const fs = require('fs');
+    const ratingsFile = './data/ratings.json';
+    let ratings = {};
+    try { ratings = JSON.parse(fs.readFileSync(ratingsFile, 'utf8')); } catch {}
+
+    const myRating = ratings[userId];
+    let text = `⭐ <b>Rating</b>\n\n`;
+    if (myRating) {
+      text += `သင့် Rating: ${'⭐'.repeat(myRating.stars)} (${myRating.stars}/5)\n`;
+      if (myRating.feedback) text += `💬 "${myRating.feedback}"\n`;
+      text += `\nRating ပြောင်းချင်ရင် အောက်က ⭐ နှိပ်ပါ။`;
+    } else {
+      text += `Bot ကို Rating ပေးပါ!\nအောက်က ⭐ နှိပ်ပါ:`;
+    }
+
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: '⭐', callback_data: 'rate_1' },
+            { text: '⭐⭐', callback_data: 'rate_2' },
+            { text: '⭐⭐⭐', callback_data: 'rate_3' },
+          ],
+          [
+            { text: '⭐⭐⭐⭐', callback_data: 'rate_4' },
+            { text: '⭐⭐⭐⭐⭐', callback_data: 'rate_5' },
+          ],
+          [{ text: '« Back to Menu', callback_data: 'back_to_menu' }],
+        ],
+      },
+    });
+  }
+
+  if (data.startsWith('rate_')) {
+    const stars = parseInt(data.replace('rate_', ''));
+    const fs = require('fs');
+    const ratingsFile = './data/ratings.json';
+    let ratings = {};
+    try { ratings = JSON.parse(fs.readFileSync(ratingsFile, 'utf8')); } catch {}
+
+    ratings[userId] = {
+      stars,
+      date: new Date().toISOString(),
+      name: [query.from.first_name, query.from.last_name].filter(Boolean).join(' '),
+      username: query.from.username || '',
+    };
+    fs.writeFileSync(ratingsFile, JSON.stringify(ratings, null, 2));
+
+    logUserAction(bot, query.from, '⭐ Rating', `${stars}/5 stars`);
+
+    const text =
+      `⭐ <b>Rating ပေးပြီးပါပြီ!</b>\n\n` +
+      `သင့် Rating: ${'⭐'.repeat(stars)} (${stars}/5)\n\n` +
+      `💬 Feedback ရေးချင်ရင် အောက်က button နှိပ်ပါ:`;
+
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '💬 Feedback ရေးမယ်', callback_data: 'rate_feedback' }],
+          [{ text: '« Back to Menu', callback_data: 'back_to_menu' }],
+        ],
+      },
+    });
+  }
+
+  if (data === 'rate_feedback') {
+    const { setRatingFeedbackState } = require('./middleware/userLogger');
+    setRatingFeedbackState(userId);
+    return bot.editMessageText(
+      `💬 <b>Feedback</b>\n\nBot အကြောင်း feedback ရေးပေးပါ:`,
+      {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: '« Cancel', callback_data: 'rating_menu' }],
+          ],
+        },
+      }
+    );
   }
 
   // ─── Contact Admin ─────────────────────────────────────────

@@ -148,6 +148,7 @@ async function createTrialKey(userId, username) {
       expiryDate: expiryDate.toISOString(),
       dataGB: config.totalGB,
       ipLimit: config.ipLimit,
+      inboundRemark: inbound.remark || '',
     };
 
     recordTrial(userId, trialData);

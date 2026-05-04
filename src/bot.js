@@ -9,7 +9,7 @@ const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, c
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
-const { logUserAction } = require('./middleware/userLogger');
+const { logUserAction, isRatingFeedback, clearRatingFeedback } = require('./middleware/userLogger');
 const { startUsageAlertScheduler } = require('./middleware/usageAlert');
 const { startDailyStatsScheduler } = require('./middleware/dailyStats');
 const { startKeyCleanupScheduler } = require('./middleware/keyCleanup');
@@ -812,6 +812,28 @@ bot.on('message', (msg) => {
   if (!msg.text || msg.text.startsWith('/')) return;
   if (isBanned(msg.from.id)) return;
   if (isAdmin(msg.from.id) && (isBroadcasting(msg.from.id) || isResettingTrial(msg.from.id) || isExtendingKey(msg.from.id) || isSettingCustomMsg(msg.from.id) || isDeletingKey(msg.from.id) || isSettingTrialGB(msg.from.id) || getAdminState(msg.from.id))) return;
+
+  // Rating feedback handler
+  if (isRatingFeedback(msg.from.id)) {
+    clearRatingFeedback(msg.from.id);
+    const fs = require('fs');
+    const ratingsFile = './data/ratings.json';
+    let ratings = {};
+    try { ratings = JSON.parse(fs.readFileSync(ratingsFile, 'utf8')); } catch {}
+    const uid = String(msg.from.id);
+    if (ratings[uid]) {
+      ratings[uid].feedback = msg.text.trim();
+      fs.writeFileSync(ratingsFile, JSON.stringify(ratings, null, 2));
+      logUserAction(bot, msg.from, '💬 Feedback', `${ratings[uid].stars}/5 stars | "${msg.text.trim()}"`);
+      bot.sendMessage(msg.chat.id,
+        `✅ Feedback ရေးပြီးပါပြီ! ကျေးဇူးတင်ပါတယ်!\n\n⭐ ${ratings[uid].stars}/5 | 💬 "${msg.text.trim()}"`,
+        { reply_markup: getMainMenuKeyboard() }
+      );
+    } else {
+      bot.sendMessage(msg.chat.id, '❌ Rating အရင်ပေးပါ။', { reply_markup: getMainMenuKeyboard() });
+    }
+    return;
+  }
 
   bot.sendMessage(msg.chat.id,
     'Menu ကို အသုံးပြုပါ:',

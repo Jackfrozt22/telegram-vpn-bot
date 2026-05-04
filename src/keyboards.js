@@ -11,6 +11,9 @@ function getMainMenuKeyboard() {
       ],
       [
         { text: '👤 My Account', callback_data: 'my_account' },
+        { text: '⭐ Rating', callback_data: 'rating_menu' },
+      ],
+      [
         { text: '📞 Admin ဆက်သွယ်ရန်', callback_data: 'contact_admin' },
       ],
     ],

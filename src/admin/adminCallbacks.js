@@ -836,6 +836,49 @@ async function handleAdminCallback(bot, query) {
     return true;
   }
 
+  // ─── Admin Ratings View ──────────────────────────────────────
+  if (data === 'admin_ratings') {
+    const fs = require('fs');
+    const ratingsFile = './data/ratings.json';
+    let ratings = {};
+    try { ratings = JSON.parse(fs.readFileSync(ratingsFile, 'utf8')); } catch {}
+
+    const entries = Object.entries(ratings);
+    if (entries.length === 0) {
+      return bot.editMessageText('⭐ <b>Ratings</b>\n\nRating မရှိသေးပါ။', {
+        chat_id: chatId, message_id: messageId,
+        parse_mode: 'HTML',
+        reply_markup: getAdminBackKeyboard(),
+      });
+    }
+
+    const totalStars = entries.reduce((sum, [, r]) => sum + r.stars, 0);
+    const avg = (totalStars / entries.length).toFixed(1);
+    const starCounts = [0, 0, 0, 0, 0];
+    entries.forEach(([, r]) => { starCounts[r.stars - 1]++; });
+
+    let text = `⭐ <b>Ratings</b> (${entries.length} users)\n\n`;
+    text += `<b>Average:</b> ${avg}/5 ${'⭐'.repeat(Math.round(avg))}\n\n`;
+    for (let i = 5; i >= 1; i--) {
+      text += `${'⭐'.repeat(i)} — ${starCounts[i - 1]} users\n`;
+    }
+
+    const feedbacks = entries.filter(([, r]) => r.feedback).slice(-10);
+    if (feedbacks.length > 0) {
+      text += `\n<b>Latest Feedback:</b>\n`;
+      feedbacks.forEach(([, r]) => {
+        const name = r.name || 'User';
+        text += `• ${r.stars}⭐ <b>${name}</b>: "${r.feedback}"\n`;
+      });
+    }
+
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: messageId,
+      parse_mode: 'HTML',
+      reply_markup: getAdminBackKeyboard(),
+    });
+  }
+
   // ─── Key Extend: Prompt for email ─────────────────────────
   if (data === 'admin_key_extend') {
     broadcastState[`extend_${userId}`] = true;
