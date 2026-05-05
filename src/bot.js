@@ -4,12 +4,12 @@ const { handleCommand } = require('./commands');
 const { handleCallback } = require('./callbacks');
 const { getMainMenuKeyboard } = require('./keyboards');
 const { isAdmin, requireAdmin } = require('./admin/auth');
-const { registerUser, isBanned, getAllUsers } = require('./admin/userManager');
+const { registerUser, getUser, isBanned, getAllUsers } = require('./admin/userManager');
 const { handleAdminCallback, isBroadcasting, clearBroadcast, isResettingTrial, clearTrialReset, isExtendingKey, clearKeyExtend, isSettingCustomMsg, clearCustomMsg, isDeletingKey, clearKeyDelete, isSettingTrialGB, clearTrialGB, isSettingMaintMsg, clearMaintMsg, isMaintenanceMode, getMaintenanceStatus, isAddingCredit, clearAddCredit, isSettingRefCredit, clearRefCredit, isSettingCreditRate, clearCreditRate, isSettingCreditInbound, clearCreditInbound, isSettingPremPlan, clearPremPlan, isCreatingCoupon, clearCreateCoupon, isDeletingCoupon, clearDeleteCoupon, isBanningWithReason, getBanTarget, clearBanReason } = require('./admin/adminCallbacks');
 const { getAdminMenuKeyboard } = require('./admin/adminKeyboards');
 const { handleXuiCallback, handleXuiAdminMessage, getAdminState, clearAdminState } = require('./admin/xuiAdminCallbacks');
 const { checkMembership, getForceJoinKeyboard, getForceJoinMessage, isForceJoinEnabled } = require('./middleware/forceJoin');
-const { logUserAction, isRatingFeedback, clearRatingFeedback, isCouponRedeem, clearCouponRedeem } = require('./middleware/userLogger');
+const { logUserAction, isRatingFeedback, clearRatingFeedback, isCouponRedeem, clearCouponRedeem, setLogChannel, getLogChannel } = require('./middleware/userLogger');
 const { startUsageAlertScheduler } = require('./middleware/usageAlert');
 const { startDailyStatsScheduler } = require('./middleware/dailyStats');
 const { startKeyCleanupScheduler } = require('./middleware/keyCleanup');
@@ -361,36 +361,66 @@ bot.onText(/\/account/, async (msg) => {
   });
 });
 
-bot.onText(/\/id/, async (msg) => {
+bot.onText(/\/id(.*)/, async (msg, match) => {
   if (isBanned(msg.from.id)) return;
   if (!await enforceJoin(msg)) return;
 
-  const userId = String(msg.from.id);
   const { getTrialInfo } = require('./vpn/trialManager');
   const { getUserPremiumKeys } = require('./vpn/premiumManager');
   const { getUserReferral } = require('./vpn/referralManager');
+  const { getBalance, getUserCredits } = require('./vpn/creditManager');
   const xuiClient = require('./vpn/xuiClient');
-
-  const user = getUser(userId);
-  const trial = getTrialInfo(userId);
-  const premium = getUserPremiumKeys(userId);
-  const ref = getUserReferral(userId);
-
+  const { premiumClient } = require('./vpn/xuiClient');
   const escHtml = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const userName = escHtml(msg.from.first_name || 'User');
-  const username = msg.from.username ? `@${escHtml(msg.from.username)}` : 'N/A';
+
+  const arg = (match[1] || '').trim();
+  let targetId = String(msg.from.id);
+  let targetUser = null;
+  let targetName = escHtml(msg.from.first_name || 'User');
+  let targetUsername = msg.from.username ? `@${escHtml(msg.from.username)}` : 'N/A';
+
+  // Admin can look up by username or userId
+  if (arg && isAdmin(msg.from.id)) {
+    const searchTerm = arg.replace(/^@/, '');
+    const allUsers = getAllUsers();
+    // Search by userId or username
+    let found = null;
+    for (const [uid, udata] of Object.entries(allUsers)) {
+      if (uid === searchTerm || (udata.username && udata.username.toLowerCase() === searchTerm.toLowerCase())) {
+        found = { id: uid, ...udata };
+        break;
+      }
+    }
+    if (!found) {
+      return bot.sendMessage(msg.chat.id, `❌ User <code>${escHtml(searchTerm)}</code> not found.`, { parse_mode: 'HTML' });
+    }
+    targetId = found.id;
+    targetName = escHtml(found.firstName || found.first_name || 'User');
+    targetUsername = found.username ? `@${escHtml(found.username)}` : 'N/A';
+    targetUser = found;
+  }
+
+  const user = targetUser || getUser(targetId);
+  const trial = getTrialInfo(targetId);
+  const premium = getUserPremiumKeys(targetId);
+  const ref = getUserReferral(targetId);
+  const creditBalance = getBalance(targetId);
+  const creditInfo = getUserCredits(targetId);
 
   let text =
-    `📋 <b>My Information</b>\n\n` +
-    `<b>Name:</b> ${userName}\n` +
-    `<b>Username:</b> ${username}\n` +
-    `<b>User ID:</b> <code>${userId}</code>\n` +
+    `📋 <b>${arg && isAdmin(msg.from.id) ? 'User Info' : 'My Information'}</b>\n\n` +
+    `<b>Name:</b> ${targetName}\n` +
+    `<b>Username:</b> ${targetUsername}\n` +
+    `<b>User ID:</b> <code>${targetId}</code>\n` +
     `<b>Joined:</b> ${user ? new Date(user.joinedAt).toLocaleDateString('en-GB') : 'N/A'}\n` +
     `<b>Last Active:</b> ${user ? new Date(user.lastActive).toLocaleDateString('en-GB') : 'N/A'}\n\n`;
 
   text += `🎁 <b>Trial Key:</b> ${trial && trial.count > 0 ? `ယူပြီး (${trial.count})` : 'မယူရသေးပါ'}\n`;
   text += `💎 <b>Premium Keys:</b> ${premium.length} ခု\n`;
-  text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n\n`;
+  text += `👥 <b>Referrals:</b> ${ref.invitedUsers.length} ယောက် invited\n`;
+  text += `💰 <b>Credit Balance:</b> ${creditBalance}\n`;
+  text += `💰 <b>Total Earned:</b> ${creditInfo.history.filter(h => h.type === 'add').reduce((a, h) => a + h.amount, 0).toFixed(2)}\n`;
+  text += `💰 <b>Total Spent:</b> ${creditInfo.history.filter(h => h.type === 'deduct').reduce((a, h) => a + h.amount, 0).toFixed(2)}\n\n`;
 
   const allKeys = [];
   if (trial && trial.keys) allKeys.push(...trial.keys.map(k => ({ ...k, type: 'Trial' })));
@@ -398,7 +428,14 @@ bot.onText(/\/id/, async (msg) => {
 
   if (allKeys.length > 0) {
     try {
-      const clients = await xuiClient.getAllClients();
+      // Get clients from both panels
+      let clients = await xuiClient.getAllClients();
+      if (premiumClient) {
+        try {
+          const premClients = await premiumClient.getAllClients();
+          clients = clients.concat(premClients);
+        } catch (e) { /* ignore */ }
+      }
       text += `<b>🔑 Keys:</b>\n`;
       for (const key of allKeys) {
         const client = clients.find(c => c.email === key.email);
@@ -412,9 +449,10 @@ bot.onText(/\/id/, async (msg) => {
           const daysLeft = client.expiryTime > 0 ? Math.max(0, Math.ceil((client.expiryTime - now) / 86400000)) : '∞';
 
           text += `\n${status} <b>${key.type}</b>\n`;
+          text += `  📧 ${escHtml(key.email)}\n`;
           text += `  📊 Data: ${usedGB} / ${totalGB} GB\n`;
           text += `  📅 Expiry: ${expiry} (${daysLeft} days left)\n`;
-          text += `  🔗 <code>${key.link}</code>\n`;
+          text += `  🔗 <code>${key.link || 'N/A'}</code>\n`;
         }
       }
     } catch {
@@ -425,6 +463,47 @@ bot.onText(/\/id/, async (msg) => {
   }
 
   bot.sendMessage(msg.chat.id, text, { parse_mode: 'HTML' });
+});
+
+// /setchannel — admin sets log channel by forwarding a message from the channel
+bot.onText(/\/setchannel/, async (msg) => {
+  if (!isAdmin(msg.from.id)) return;
+  // If this is a forwarded message from a channel, use that channel's chat ID
+  if (msg.forward_from_chat && (msg.forward_from_chat.type === 'channel' || msg.forward_from_chat.type === 'supergroup')) {
+    const channelId = String(msg.forward_from_chat.id);
+    const channelTitle = msg.forward_from_chat.title || 'Unknown';
+    setLogChannel(channelId);
+    return bot.sendMessage(msg.chat.id,
+      `✅ Log Channel set!\n\n` +
+      `📋 Title: ${channelTitle}\n` +
+      `🆔 ID: <code>${channelId}</code>\n\n` +
+      `Log တွေ ဒီ channel ကို ပို့ပေးပါမယ်။`,
+      { parse_mode: 'HTML' }
+    );
+  }
+  // If just /setchannel with a chat ID argument
+  const text = msg.text.trim();
+  const parts = text.split(/\s+/);
+  if (parts.length > 1) {
+    const channelId = parts[1];
+    setLogChannel(channelId);
+    try {
+      await bot.sendMessage(channelId, '✅ Log channel connected!');
+      return bot.sendMessage(msg.chat.id, `✅ Log Channel <code>${channelId}</code> set!`, { parse_mode: 'HTML' });
+    } catch (e) {
+      return bot.sendMessage(msg.chat.id, `⚠️ Channel set but test send failed: ${e.message}\n\nBot ကို channel admin အဖြစ် ထည့်ထားပါ။`, { parse_mode: 'HTML' });
+    }
+  }
+  // Instructions
+  const current = getLogChannel();
+  return bot.sendMessage(msg.chat.id,
+    `📋 <b>Set Log Channel</b>\n\n` +
+    `<b>Current:</b> ${current || 'Not set'}\n\n` +
+    `<b>နည်း ၁:</b> Channel ထဲက message တစ်ခု forward လုပ်ပြီး /setchannel ရိုက်ပါ\n\n` +
+    `<b>နည်း ၂:</b> <code>/setchannel -100xxxxx</code> (channel ID ထည့်ပါ)\n\n` +
+    `⚠️ Bot ကို channel admin အဖြစ် ထည့်ထားဖို့ လိုပါတယ်`,
+    { parse_mode: 'HTML' }
+  );
 });
 
 bot.onText(/\/cancel/, (msg) => {

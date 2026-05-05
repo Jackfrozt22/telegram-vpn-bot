@@ -245,6 +245,18 @@ function savePremiumKey(userId, keyData) {
   savePremiumKeys(premData);
 }
 
+function removePremiumKeyByEmail(email) {
+  const premData = loadPremiumKeys();
+  let removed = false;
+  for (const uid of Object.keys(premData.keys)) {
+    const before = premData.keys[uid].length;
+    premData.keys[uid] = premData.keys[uid].filter(k => k.email !== email);
+    if (premData.keys[uid].length < before) removed = true;
+  }
+  if (removed) savePremiumKeys(premData);
+  return removed;
+}
+
 module.exports = {
   getPlans,
   getPlan,
@@ -258,4 +270,5 @@ module.exports = {
   rejectOrder,
   getUserPremiumKeys,
   savePremiumKey,
+  removePremiumKeyByEmail,
 };

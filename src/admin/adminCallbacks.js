@@ -578,10 +578,13 @@ async function handleAdminCallback(bot, query) {
     const email = data.replace('confirm_delete_', '');
     const xuiClient = require('../vpn/xuiClient');
     const { premiumClient } = require('../vpn/xuiClient');
+    const { removePremiumKeyByEmail } = require('../vpn/premiumManager');
+    const { removeTrialKeyByEmail } = require('../vpn/trialManager');
     try {
       // Try both panels (trial + premium)
       let client = null;
       let targetClient = xuiClient;
+      let panelName = 'Trial';
       const clients = await xuiClient.getAllClients();
       client = clients.find(c => c.email === email);
 
@@ -589,13 +592,26 @@ async function handleAdminCallback(bot, query) {
         try {
           const premClients = await premiumClient.getAllClients();
           client = premClients.find(c => c.email === email);
-          if (client) targetClient = premiumClient;
+          if (client) {
+            targetClient = premiumClient;
+            panelName = 'Premium';
+          }
         } catch (e) {
           console.error('Premium panel search error:', e.message);
         }
       }
 
       if (!client) {
+        // Still remove from local database even if not found on panel
+        const removedPrem = removePremiumKeyByEmail(email);
+        const removedTrial = removeTrialKeyByEmail(email);
+        if (removedPrem || removedTrial) {
+          return bot.editMessageText(`✅ <code>${email}</code> ကို local database ကနေ ဖျက်ပြီးပါပြီ (panel မှာ မတွေ့ပါ)`, {
+            chat_id: chatId, message_id: messageId,
+            parse_mode: 'HTML',
+            reply_markup: getAdminBackKeyboard(),
+          });
+        }
         return bot.editMessageText(`❌ Client <code>${email}</code> not found.`, {
           chat_id: chatId, message_id: messageId,
           parse_mode: 'HTML',
@@ -603,6 +619,7 @@ async function handleAdminCallback(bot, query) {
         });
       }
 
+      // Delete from X-UI panel
       const inbound = await targetClient.getInbound(client.inboundId);
       const settings = JSON.parse(inbound.settings);
       settings.clients = settings.clients.filter(c => c.email !== email);
@@ -610,8 +627,12 @@ async function handleAdminCallback(bot, query) {
       delete updateData.clientStats;
       await targetClient.request('post', `/xui/inbound/update/${client.inboundId}`, updateData);
 
+      // Also remove from local databases (user my key)
+      removePremiumKeyByEmail(email);
+      removeTrialKeyByEmail(email);
+
       return bot.editMessageText(
-        `✅ Client <code>${email}</code> ဖျက်ပြီးပါပြီ!`,
+        `✅ <code>${email}</code> ဖျက်ပြီးပါပြီ!\n\n📋 Panel: ${panelName}\n🗑 X-UI Panel + User My Key ကနေ ဖျက်ပြီးပါပြီ`,
         {
           chat_id: chatId, message_id: messageId,
           parse_mode: 'HTML',

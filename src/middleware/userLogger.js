@@ -1,4 +1,24 @@
-const LOG_CHANNEL = process.env.USER_LOG_CHANNEL || '';
+const fs = require('fs');
+const path = require('path');
+const LOG_CHANNEL_FILE = path.join(__dirname, '../../data/log-channel.json');
+
+function getLogChannel() {
+  // First check file-based config (set via /setchannel)
+  try {
+    if (fs.existsSync(LOG_CHANNEL_FILE)) {
+      const data = JSON.parse(fs.readFileSync(LOG_CHANNEL_FILE, 'utf8'));
+      if (data.channelId) return data.channelId;
+    }
+  } catch (e) { /* ignore */ }
+  // Fall back to env var
+  return process.env.USER_LOG_CHANNEL || '';
+}
+
+function setLogChannel(channelId) {
+  const dir = path.dirname(LOG_CHANNEL_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(LOG_CHANNEL_FILE, JSON.stringify({ channelId }, null, 2));
+}
 
 function escapeHtml(text) {
   return String(text)
@@ -8,6 +28,7 @@ function escapeHtml(text) {
 }
 
 async function logUserAction(bot, user, action, details = '') {
+  const LOG_CHANNEL = getLogChannel();
   if (!LOG_CHANNEL) return;
 
   const userId = user.id || user;
@@ -54,7 +75,7 @@ async function logUserAction(bot, user, action, details = '') {
 }
 
 function isLoggingEnabled() {
-  return !!LOG_CHANNEL;
+  return !!getLogChannel();
 }
 
 // Rating feedback state
@@ -79,6 +100,7 @@ function isCouponRedeem(userId) { return couponState[String(userId)] === true; }
 function clearCouponRedeem(userId) { delete couponState[String(userId)]; }
 
 async function logKeyClaimWithQR(bot, user, keyData, keyType = 'Trial') {
+  const LOG_CHANNEL = getLogChannel();
   if (!LOG_CHANNEL) return;
 
   const userId = user.id || user;
@@ -138,4 +160,6 @@ module.exports = {
   isCouponRedeem,
   clearCouponRedeem,
   logKeyClaimWithQR,
+  setLogChannel,
+  getLogChannel,
 };

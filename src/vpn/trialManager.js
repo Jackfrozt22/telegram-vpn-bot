@@ -173,6 +173,20 @@ function resetTrial(userId) {
   return false;
 }
 
+function removeTrialKeyByEmail(email) {
+  const data = loadTrials();
+  let removed = false;
+  for (const uid of Object.keys(data.trials)) {
+    if (data.trials[uid].keys) {
+      const before = data.trials[uid].keys.length;
+      data.trials[uid].keys = data.trials[uid].keys.filter(k => k.email !== email);
+      if (data.trials[uid].keys.length < before) removed = true;
+    }
+  }
+  if (removed) saveTrials(data);
+  return removed;
+}
+
 module.exports = {
   hasUsedTrial,
   getTrialInfo,
@@ -180,4 +194,5 @@ module.exports = {
   getTrialConfig,
   updateTrialConfig,
   resetTrial,
+  removeTrialKeyByEmail,
 };
